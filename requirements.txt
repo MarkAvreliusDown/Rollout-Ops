@@ -5,3 +5,4 @@ requests
 python-docx
 beautifulsoup4
 pypdf
+faster-whisper>=1.0,<2.0

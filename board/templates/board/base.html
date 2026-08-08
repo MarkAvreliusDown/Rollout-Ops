@@ -225,6 +225,8 @@
   .icon-picker-color input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .icon-picker-color:has(input:checked) { opacity: 1; outline-color: var(--text); }
   input, textarea, select { width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--card); color: var(--text); }
+  select { color-scheme: light dark; }
+  select option { background: var(--bg); color: var(--text); }
   textarea { resize: vertical; }
   label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-family: monospace; display: block; margin-bottom: 3px; }
   html[data-theme="glass"] label { font-weight: 500; }
@@ -447,7 +449,7 @@
   }
   html[data-theme="glass"] .kpi-tip,
   html[data-theme="glass"] .calendar-day-panel {
-    background: rgba(20,18,32,0.9);
+    background: rgba(255,255,255,0.14);
     backdrop-filter: blur(36px) saturate(150%);
     -webkit-backdrop-filter: blur(36px) saturate(150%);
   }
@@ -976,9 +978,13 @@
   });
   document.addEventListener('DOMContentLoaded', function() {
     var path = window.location.pathname;
+    var search = window.location.search;
     document.querySelectorAll('.sidebar nav a[href]').forEach(function(a) {
-      var href = a.getAttribute('href').split('?')[0].split('#')[0];
-      if (href && href === path) {
+      var raw = a.getAttribute('href');
+      var hrefPath = raw.split('?')[0].split('#')[0];
+      var hrefQuery = raw.indexOf('?') !== -1 ? '?' + raw.split('?')[1].split('#')[0] : '';
+      var matches = hrefPath && hrefPath === path && (hrefQuery === '' ? search === '' : hrefQuery === search);
+      if (matches) {
         a.classList.add('active');
         var details = a.closest('details');
         if (details) details.open = true;

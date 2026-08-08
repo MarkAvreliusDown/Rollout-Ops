@@ -98,7 +98,8 @@
   .task-kanban-card-top { display: flex; align-items: center; gap: 8px; }
   .task-kanban-card-title { font-size: 13px; font-weight: 600; color: var(--text); }
   .task-kanban-card-overdue .task-kanban-card-title { color: var(--danger); font-weight: 700; }
-  .task-kanban-card-store { align-self: flex-start; margin-bottom: 2px; }
+  .task-kanban-card-store { align-self: flex-start; margin-bottom: 2px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); font-weight: 600; }
+  .task-kanban-card > .badge { align-self: flex-start; }
   .task-kanban-card-done-btn { align-self: flex-start; background: var(--ok); border: none; color: #fff; border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 2px; }
   .task-kanban-card-done-btn:disabled { opacity: .5; cursor: default; }
 
@@ -400,7 +401,7 @@ async function sendTelegramToday() {
             {% task_icon_badge t %}
             <span class="task-kanban-card-title">{{ t.title }}</span>
           </div>
-          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          <a class="plain badge task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
           {% if t.due_date %}
             <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
           {% endif %}
@@ -425,7 +426,7 @@ async function sendTelegramToday() {
             {% task_icon_badge t %}
             <span class="task-kanban-card-title">{{ t.title }}</span>
           </div>
-          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          <a class="plain badge task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
           {% if t.due_date %}
             <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
           {% endif %}
@@ -450,7 +451,7 @@ async function sendTelegramToday() {
             {% task_icon_badge t %}
             <span class="task-kanban-card-title">{{ t.title }}</span>
           </div>
-          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          <a class="plain badge task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
           {% if t.due_date %}
             <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
           {% endif %}
@@ -475,7 +476,7 @@ async function sendTelegramToday() {
             {% task_icon_badge t %}
             <span class="task-kanban-card-title">{{ t.title }}</span>
           </div>
-          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          <a class="plain badge task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
           {% if t.due_date %}
             <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
           {% endif %}
@@ -569,6 +570,16 @@ async function sendTelegramToday() {
   </form>
   <div id="dash-note-actions-{{ n.id }}" class="row" style="margin-top:8px;">
     <button type="button" class="secondary" onclick="toggleDashNoteEdit({{ n.id }})">✏️ Редактировать</button>
+    <form method="post" action="{% url 'archive_note' n.id %}" style="display:inline;">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="secondary" title="Отметить выполненной (уйдёт в архив заметок)">✅ Готово</button>
+    </form>
+    <form method="post" action="{% url 'delete_note' n.id %}" style="display:inline;" onsubmit="return confirm('Удалить заметку без возможности восстановить?');">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="secondary" title="Удалить безвозвратно">🗑️ Удалить</button>
+    </form>
   </div>
 </div>
 {% empty %}

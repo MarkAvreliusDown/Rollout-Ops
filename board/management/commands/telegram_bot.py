@@ -390,6 +390,42 @@ def _extract_files(msg):
     return files
 
 
+_whisper_model = None
+
+
+def _get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        logger.info("Telegram: загружаю модель распознавания речи (faster-whisper medium)...")
+        _whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+        logger.info("Telegram: модель распознавания речи загружена.")
+    return _whisper_model
+
+
+def _extract_voice(msg):
+    """Скачивает голосовое сообщение. Возвращает (имя, содержимое) либо (None, None)."""
+    voice = msg.get("voice")
+    if not voice:
+        return None, None
+    name, content = download_file(voice["file_id"])
+    return (name or "voice.ogg"), content
+
+
+def _transcribe_voice(content):
+    """Распознаёт речь из байтов .ogg локально. None при любой ошибке —
+    вызывающий код должен всё равно сохранить запись (хотя бы с аудио)."""
+    import io
+    try:
+        model = _get_whisper_model()
+        segments, _info = model.transcribe(io.BytesIO(content), language="ru", vad_filter=True)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        return text or None
+    except Exception:
+        logger.exception("Telegram: не удалось распознать голосовое сообщение")
+        return None
+
+
 def _finish_entry(chat_id, mode, store, text, files):
     entry_text = text or "(без текста, только вложение)"
     suffix = f" +{len(files)} файл(ов)" if files else ""
@@ -496,6 +532,16 @@ def handle_message(msg):
         return
 
     files = _extract_files(msg)
+
+    voice_name, voice_content = _extract_voice(msg)
+    if voice_content:
+        files.append((voice_name, voice_content))
+        transcribed = _transcribe_voice(voice_content)
+        if transcribed:
+            text = f"{text}\n\n🎤 {transcribed}".strip() if text else f"🎤 {transcribed}"
+        else:
+            note = "🎤 Голосовое сообщение (распознать не удалось, файл во вложении)"
+            text = f"{text}\n\n{note}".strip() if text else note
 
     # --- альбом: копим части, сохраняем одной записью чуть позже ---
     if media_group_id:
