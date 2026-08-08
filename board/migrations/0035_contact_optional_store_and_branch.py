@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='contact',
             name='branch',
-            field=models.CharField(blank=True, choices=[('szf', 'СЗФ'), ('uf', 'УФ'), ('pf', 'ПФ'), ('cf', 'ЦФ')], max_length=10, verbose_name='Филиал'),
+            field=models.CharField(blank=True, choices=[('szf', 'Филиал 1'), ('uf', 'Филиал 2'), ('pf', 'Филиал 3'), ('cf', 'Филиал 4')], max_length=10, verbose_name='Филиал'),
         ),
         migrations.AlterField(
             model_name='contact',

@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
             name='ReconstructionRecord',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('branch', models.CharField(blank=True, choices=[('szf', 'СЗФ'), ('uf', 'УФ'), ('pf', 'ПФ'), ('cf', 'ЦФ')], max_length=10, verbose_name='Филиал')),
+                ('branch', models.CharField(blank=True, choices=[('szf', 'Филиал 1'), ('uf', 'Филиал 2'), ('pf', 'Филиал 3'), ('cf', 'Филиал 4')], max_length=10, verbose_name='Филиал')),
                 ('store_number', models.CharField(max_length=50, verbose_name='№ объекта')),
                 ('reconstruction_date', models.DateField(blank=True, null=True, verbose_name='Дата реконструкции')),
                 ('expected_amount', models.IntegerField(blank=True, null=True, verbose_name='Ожидаемая премия')),

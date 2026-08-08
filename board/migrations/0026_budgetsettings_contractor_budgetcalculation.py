@@ -378,7 +378,7 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('contractor_name', models.CharField(blank=True, max_length=200, verbose_name='Подрядчик (снимок)')),
                 ('title', models.CharField(max_length=200, verbose_name='Название/номер объекта')),
-                ('branch', models.CharField(blank=True, choices=[('szf', 'СЗФ'), ('uf', 'УФ'), ('pf', 'ПФ'), ('cf', 'ЦФ')], max_length=10, verbose_name='Филиал')),
+                ('branch', models.CharField(blank=True, choices=[('szf', 'Филиал 1'), ('uf', 'Филиал 2'), ('pf', 'Филиал 3'), ('cf', 'Филиал 4')], max_length=10, verbose_name='Филиал')),
                 ('store_number', models.CharField(blank=True, max_length=50, verbose_name='№ объекта')),
                 ('is_archived', models.BooleanField(default=False, verbose_name='В архиве')),
                 ('vat_rate', models.DecimalField(decimal_places=1, default=22, max_digits=4, verbose_name='Ставка НДС, %')),
