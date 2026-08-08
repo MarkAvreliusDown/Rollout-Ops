@@ -8,3 +8,4 @@ logs/
 temp/
 project_source_dump.txt
 *.log
+CLAUDE.md
