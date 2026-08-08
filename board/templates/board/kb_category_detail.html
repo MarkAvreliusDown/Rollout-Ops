@@ -1,0 +1,48 @@
+{% extends "board/base.html" %}
+{% block title %}{{ category.name|default:"Без категории" }}{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;">
+  <h1>{{ category.name|default:"Без категории" }}</h1>
+  <div class="row">
+    <a class="btn secondary" href="{% url 'kb_list' %}">← Все категории</a>
+    {% if category %}
+    <a class="btn secondary" href="{% url 'kb_import' %}?category_id={{ category.id }}">⬆ Импорт из Word/PDF</a>
+    <a class="btn accent" href="{% url 'kb_add' %}?category_id={{ category.id }}">+ Новая статья</a>
+    {% else %}
+    <a class="btn secondary" href="{% url 'kb_import' %}">⬆ Импорт из Word/PDF</a>
+    <a class="btn accent" href="{% url 'kb_add' %}">+ Новая статья</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid">
+  {% for a in articles %}
+  <a class="card" style="text-decoration:none;color:inherit;display:block;" href="{% url 'kb_detail' a.id %}">
+    <strong>{{ a.title }}</strong>
+    <div class="muted">обновлено {{ a.updated_at|date:"d.m.Y" }}</div>
+  </a>
+  {% empty %}
+    <p class="muted">Статей пока нет.</p>
+  {% endfor %}
+</div>
+
+<h2>Файлы категории</h2>
+<div class="row">
+  {% for f in category_files %}
+    <span class="badge badge-muted" style="padding:6px 10px;">
+      <a class="plain" href="{{ f.file.url }}" target="_blank">📎 {{ f.filename }}</a>
+      <form method="post" action="{% url 'kb_category_delete_file' f.id %}" style="display:inline;">
+        {% csrf_token %}
+        <button type="submit" class="danger" style="padding:1px 6px;font-size:10px;">✕</button>
+      </form>
+    </span>
+  {% empty %}
+    <p class="muted">Файлов пока нет.</p>
+  {% endfor %}
+</div>
+<form method="post" action="{% url 'kb_category_add_file' category_id_for_url %}" enctype="multipart/form-data" class="row" style="margin-top:10px;">
+  {% csrf_token %}
+  <input type="file" name="files" multiple style="flex:1;">
+  <button type="submit" class="secondary">+ Прикрепить файл</button>
+</form>
+{% endblock %}

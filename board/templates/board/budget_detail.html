@@ -1,0 +1,533 @@
+{% extends "board/base.html" %}
+{% block title %}{{ calc.title }} — бюджет{% endblock %}
+{% block content %}
+{{ initial_state|json_script:"budget-initial-state" }}
+<div style="display:none">{% csrf_token %}</div>
+
+<style>
+  .bud-table-scroll { overflow-x: auto; margin: 10px 0; }
+  .bud-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .bud-table th, .bud-table td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; }
+  .bud-table th { background: var(--panel); white-space: nowrap; }
+  .bud-table input { padding: 5px; font-size: 13px; }
+  .bud-table td.num input { text-align: right; }
+  .bud-table td.sum { text-align: right; font-weight: 600; white-space: nowrap; }
+  .bud-table td.rm { width: 30px; text-align: center; }
+  .bud-boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+  .bud-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .bud-box .lbl { font-size: 11px; text-transform: uppercase; color: var(--muted); font-family: monospace; }
+  .bud-box .val { font-size: 17px; font-weight: 700; margin-top: 4px; }
+  .bud-box.grand { background: linear-gradient(135deg, var(--accent), #8E7CFF); }
+  .bud-box.grand .lbl, .bud-box.grand .val { color: #fff; }
+  .save-indicator { font-size: 12px; color: var(--ok); opacity: 0; transition: opacity .4s; }
+  .save-indicator.show { opacity: 1; }
+  .save-indicator.error { color: var(--danger); }
+  #budPreview { margin-top: 15px; padding: 16px; border: 2px dashed var(--accent); background: #fff; color: #1a1a1a; font-size: 13px; overflow-x: auto; max-height: 70vh; border-radius: 8px; color-scheme: light; display: none; }
+</style>
+
+<div class="row" style="justify-content:space-between;">
+  <h1 style="margin:0;">🧮 {{ calc.title }}</h1>
+  <span id="saveIndicator" class="save-indicator">Сохранено</span>
+</div>
+
+<div class="row" style="position:sticky; top:0; z-index:5; background:var(--panel); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); padding:10px 0; margin-bottom:10px; border-bottom:1px solid var(--border);">
+  <button type="button" class="accent" onclick="prepareText()">🧾 Подготовить</button>
+  <button type="button" class="secondary" id="copyBtn" style="display:none;" onclick="copyPreview()">📋 Скопировать</button>
+  <button type="button" class="secondary" onclick="toggleArchive()">{% if calc.is_archived %}↩ Вернуть из архива{% else %}📦 В архив{% endif %}</button>
+  {% if calc.is_archived and not calc.reconstruction_id %}
+  <form method="post" action="{% url 'budget_to_reconstruction' calc.id %}" onsubmit="return confirm('Перевести расчёт в «Реконструкции» с ожидаемой премией {{ calc.premium }} ₽?')" style="display:inline;">
+    {% csrf_token %}
+    <button type="submit" class="accent">🏗 Перевести в реконструкции</button>
+  </form>
+  {% elif calc.reconstruction_id %}
+  <span class="badge badge-ok">Уже переведено в реконструкции</span>
+  {% endif %}
+  <form method="post" action="{% url 'delete_budget' calc.id %}" onsubmit="return confirm('Удалить расчёт безвозвратно?')" style="display:inline;">
+    {% csrf_token %}
+    <button type="submit" class="danger">Удалить</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div class="field" style="flex:1;">
+      <label>Название/номер объекта</label>
+      <input type="text" id="fTitle">
+    </div>
+    <div class="field" style="flex:1;">
+      <label>Филиал</label>
+      <select id="fBranch">
+        <option value="">—</option>
+        {% for code, label in branches %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field" style="flex:1;">
+      <label>№ объекта</label>
+      <input type="text" id="fStoreNumber">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field" style="flex:1;">
+      <label>Подрядчик (смена подставит его цены)</label>
+      <select id="fContractor"></select>
+    </div>
+    <div class="field" style="flex:1;">
+      <label>Ставка НДС, %</label>
+      <input type="number" id="fVat" step="0.1">
+    </div>
+    <div class="field" style="flex:1;">
+      <label>Премия, ₽</label>
+      <input type="number" id="fPremium" step="0.01">
+    </div>
+  </div>
+</div>
+
+<div id="budBoxes" class="bud-boxes"></div>
+
+<h2>Расчёт ТД (точки по зонам → кол-во портов СКС)</h2>
+<div class="card">
+  <div class="bud-table-scroll">
+    <table class="bud-table" id="tdTable">
+      <thead><tr><th>Зона</th><th style="width:110px;">Кол-во</th><th class="rm"></th></tr></thead>
+      <tbody id="tdTbody"></tbody>
+    </table>
+  </div>
+  <button type="button" class="secondary btn-small" onclick="addTdZone()">+ Зона</button>
+  <button type="button" class="secondary btn-small" onclick="fillDefaultTdZones()">Заполнить стандартный список</button>
+  <p class="muted" style="margin-top:8px;">Сумма кол-ва по зонам автоматически становится количеством портов СКС в таблице «Виды работ». Если зон нет — используется количество, введённое вручную в строке порта СКС.</p>
+</div>
+
+<h2>Виды работ</h2>
+<div class="card">
+  <div class="bud-table-scroll">
+    <table class="bud-table" id="workMainTable">
+      <thead><tr><th>Вид работы</th><th style="width:110px;">Цена</th><th style="width:90px;">Кол-во</th><th style="width:120px;">Сумма (с НДС)</th><th class="rm"></th></tr></thead>
+      <tbody id="workMainTbody"></tbody>
+    </table>
+  </div>
+  <button type="button" class="secondary btn-small" onclick="addWorkRow('main')">+ Вид работы</button>
+</div>
+
+<h2>ПНР КСО / доп. работы</h2>
+<div class="card">
+  <div class="bud-table-scroll">
+    <table class="bud-table" id="workKsoTable">
+      <thead><tr><th>Работа</th><th style="width:110px;">Цена</th><th style="width:90px;">Кол-во</th><th style="width:120px;">Сумма (с НДС)</th><th class="rm"></th></tr></thead>
+      <tbody id="workKsoTbody"></tbody>
+    </table>
+  </div>
+  <button type="button" class="secondary btn-small" onclick="addWorkRow('kso')">+ Работа</button>
+</div>
+
+<h2>Оборудование</h2>
+<div class="card">
+  <div class="bud-table-scroll">
+    <table class="bud-table" id="equipTable">
+      <thead><tr><th>Оборудование</th><th style="width:110px;">Цена</th><th style="width:90px;">Кол-во</th><th style="width:120px;">Сумма</th><th class="rm"></th></tr></thead>
+      <tbody id="equipTbody"></tbody>
+    </table>
+  </div>
+  <button type="button" class="secondary btn-small" onclick="addEquipRow()">+ Оборудование</button>
+</div>
+
+<div id="budPreview"></div>
+
+<script>
+(function() {
+  const state = JSON.parse(document.getElementById('budget-initial-state').textContent);
+  const SAVE_URL = '{% url "budget_save" calc.id %}';
+  const ARCHIVE_URL = '{% url "toggle_budget_archived" calc.id %}';
+
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+  }
+  function fmt(n) {
+    return (Number(n) || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function tdSum() {
+    return state.tdZones.reduce(function(s, z) { return s + (Number(z.qty) || 0); }, 0);
+  }
+
+  function totals() {
+    const vatMult = 1 + (Number(state.vatRate) || 0) / 100;
+    const scsQty = state.tdZones.length ? tdSum() : null;
+    let equipmentTotal = 0, workTotal = 0, ksoTotal = 0, scsTotal = 0;
+    state.equipmentRows.forEach(function(r) { equipmentTotal += (Number(r.unit_price) || 0) * (Number(r.qty) || 0); });
+    state.workRows.forEach(function(r) {
+      const price = Number(r.unit_price) || 0;
+      if (r.is_scs) {
+        const qty = scsQty !== null ? scsQty : (Number(r.qty) || 0);
+        scsTotal += price * qty * vatMult;
+      } else if (r.section === 'kso') {
+        ksoTotal += price * (Number(r.qty) || 0) * vatMult;
+      } else {
+        workTotal += price * (Number(r.qty) || 0) * vatMult;
+      }
+    });
+    const premium = Number(state.premium) || 0;
+    const grand = equipmentTotal + ksoTotal + workTotal + scsTotal + premium;
+    return { equipmentTotal: equipmentTotal, workTotal: workTotal, ksoTotal: ksoTotal, scsTotal: scsTotal, premium: premium, grand: grand, scsQty: scsQty };
+  }
+
+  function renderBoxes() {
+    const t = totals();
+    const boxes = [
+      ['Оборудование', t.equipmentTotal],
+      ['ПНР КСО', t.ksoTotal],
+      ['ПНР', t.workTotal],
+      ['СКС', t.scsTotal],
+      ['Премия', t.premium],
+    ];
+    const el = document.getElementById('budBoxes');
+    el.innerHTML = '';
+    boxes.forEach(function(b) {
+      const div = document.createElement('div');
+      div.className = 'bud-box';
+      div.innerHTML = '<div class="lbl">' + b[0] + '</div><div class="val">' + fmt(b[1]) + ' ₽</div>';
+      el.appendChild(div);
+    });
+    const grand = document.createElement('div');
+    grand.className = 'bud-box grand';
+    grand.innerHTML = '<div class="lbl">Общее</div><div class="val">' + fmt(t.grand) + ' ₽</div>';
+    el.appendChild(grand);
+  }
+
+  function renderHeader() {
+    document.getElementById('fTitle').value = state.title || '';
+    document.getElementById('fBranch').value = state.branch || '';
+    document.getElementById('fStoreNumber').value = state.storeNumber || '';
+    document.getElementById('fVat').value = state.vatRate;
+    document.getElementById('fPremium').value = state.premium;
+
+    const sel = document.getElementById('fContractor');
+    sel.innerHTML = '';
+    state.contractors.forEach(function(c) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      if (c.id === state.contractorId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function renderTd() {
+    const tbody = document.getElementById('tdTbody');
+    tbody.innerHTML = '';
+    state.tdZones.forEach(function(z, i) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><input type="text" value="' + (z.label || '').replace(/"/g, '&quot;') + '" data-i="' + i + '" data-f="label"></td>' +
+        '<td class="num"><input type="number" step="1" value="' + (z.qty || 0) + '" data-i="' + i + '" data-f="qty"></td>' +
+        '<td class="rm"><button type="button" class="danger btn-small" onclick="removeTdZone(' + i + ')">✕</button></td>';
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('input').forEach(function(inp) {
+      inp.addEventListener('input', function() {
+        const i = Number(inp.dataset.i), f = inp.dataset.f;
+        state.tdZones[i][f] = f === 'qty' ? Number(inp.value) : inp.value;
+        renderBoxes();
+        refreshScsRows();
+        scheduleSave();
+      });
+    });
+  }
+
+  // Обновляет кол-во и сумму у заблокированных СКС-строк в «Видах работ» без
+  // полной пересборки таблицы — иначе при вводе кол-ва зоны терялся бы фокус
+  // на других полях, если бы они были в процессе редактирования.
+  function refreshScsRows() {
+    const tbody = document.getElementById('workMainTbody');
+    const vatMult = 1 + (Number(state.vatRate) || 0) / 100;
+    const scsQty = state.tdZones.length ? tdSum() : null;
+    state.workRows.forEach(function(r, i) {
+      if (r.section !== 'main' || !r.is_scs || scsQty === null) return;
+      const row = tbody.querySelector('tr[data-row="' + i + '"]');
+      if (!row) return;
+      const qtyInput = row.querySelector('input[data-f="qty"]');
+      if (qtyInput) qtyInput.value = scsQty;
+      const sum = (Number(r.unit_price) || 0) * scsQty * vatMult;
+      const sumCell = row.querySelector('td.sum');
+      if (sumCell) sumCell.textContent = fmt(sum);
+    });
+  }
+
+  function renderWorkTable(section) {
+    const tbodyId = section === 'main' ? 'workMainTbody' : 'workKsoTbody';
+    const tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = '';
+    const vatMult = 1 + (Number(state.vatRate) || 0) / 100;
+    const scsQty = state.tdZones.length ? tdSum() : null;
+    state.workRows.forEach(function(r, i) {
+      if (r.section !== section) return;
+      const qtyLocked = r.is_scs && scsQty !== null;
+      const effQty = qtyLocked ? scsQty : (Number(r.qty) || 0);
+      const sum = (Number(r.unit_price) || 0) * effQty * vatMult;
+      const tr = document.createElement('tr');
+      tr.dataset.row = i;
+      tr.innerHTML =
+        '<td><input type="text" value="' + (r.title || '').replace(/"/g, '&quot;') + '" data-i="' + i + '" data-f="title"></td>' +
+        '<td class="num"><input type="number" step="0.01" value="' + (r.unit_price || 0) + '" data-i="' + i + '" data-f="unit_price"></td>' +
+        '<td class="num"><input type="number" step="1" value="' + effQty + '" data-i="' + i + '" data-f="qty"' + (qtyLocked ? ' disabled title="считается из блока «Расчёт ТД»"' : '') + '></td>' +
+        '<td class="sum">' + fmt(sum) + '</td>' +
+        '<td class="rm"><button type="button" class="danger btn-small" onclick="removeWorkRow(' + i + ')">✕</button></td>';
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('input').forEach(function(inp) {
+      inp.addEventListener('input', function() {
+        const i = Number(inp.dataset.i), f = inp.dataset.f;
+        state.workRows[i][f] = (f === 'unit_price' || f === 'qty') ? Number(inp.value) : inp.value;
+        const r = state.workRows[i];
+        const vatMult = 1 + (Number(state.vatRate) || 0) / 100;
+        const scsQty = state.tdZones.length ? tdSum() : null;
+        const qtyLocked = r.is_scs && scsQty !== null;
+        const effQty = qtyLocked ? scsQty : (Number(r.qty) || 0);
+        const sum = (Number(r.unit_price) || 0) * effQty * vatMult;
+        const row = tbody.querySelector('tr[data-row="' + i + '"]');
+        if (row) {
+          const sumCell = row.querySelector('td.sum');
+          if (sumCell) sumCell.textContent = fmt(sum);
+        }
+        renderBoxes();
+        scheduleSave();
+      });
+    });
+  }
+
+  function renderEquip() {
+    const tbody = document.getElementById('equipTbody');
+    tbody.innerHTML = '';
+    state.equipmentRows.forEach(function(r, i) {
+      const sum = (Number(r.unit_price) || 0) * (Number(r.qty) || 0);
+      const tr = document.createElement('tr');
+      tr.dataset.row = i;
+      tr.innerHTML =
+        '<td><input type="text" value="' + (r.title || '').replace(/"/g, '&quot;') + '" data-i="' + i + '" data-f="title"></td>' +
+        '<td class="num"><input type="number" step="0.01" value="' + (r.unit_price || 0) + '" data-i="' + i + '" data-f="unit_price"></td>' +
+        '<td class="num"><input type="number" step="1" value="' + (r.qty || 0) + '" data-i="' + i + '" data-f="qty"></td>' +
+        '<td class="sum">' + fmt(sum) + '</td>' +
+        '<td class="rm"><button type="button" class="danger btn-small" onclick="removeEquipRow(' + i + ')">✕</button></td>';
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('input').forEach(function(inp) {
+      inp.addEventListener('input', function() {
+        const i = Number(inp.dataset.i), f = inp.dataset.f;
+        state.equipmentRows[i][f] = (f === 'unit_price' || f === 'qty') ? Number(inp.value) : inp.value;
+        const r = state.equipmentRows[i];
+        const sum = (Number(r.unit_price) || 0) * (Number(r.qty) || 0);
+        const row = tbody.querySelector('tr[data-row="' + i + '"]');
+        if (row) {
+          const sumCell = row.querySelector('td.sum');
+          if (sumCell) sumCell.textContent = fmt(sum);
+        }
+        renderBoxes();
+        scheduleSave();
+      });
+    });
+  }
+
+  function renderAll() {
+    renderHeader();
+    renderTd();
+    renderWorkTable('main');
+    renderWorkTable('kso');
+    renderEquip();
+    renderBoxes();
+  }
+
+  window.addTdZone = function() {
+    state.tdZones.push({ label: '', qty: 0 });
+    renderTd(); renderWorkTable('main'); renderBoxes(); scheduleSave();
+  };
+  window.removeTdZone = function(i) {
+    state.tdZones.splice(i, 1);
+    renderTd(); renderWorkTable('main'); renderBoxes(); scheduleSave();
+  };
+  const DEFAULT_TD_ZONES = ['Место ДМ', 'Кассы', 'ПЧ', 'МЛ', 'КСО', 'ТБ', 'Офис на приемке', 'АДМ', 'ТД'];
+  window.fillDefaultTdZones = function() {
+    const have = state.tdZones.map(function(z) { return z.label; });
+    DEFAULT_TD_ZONES.forEach(function(label) {
+      if (have.indexOf(label) === -1) state.tdZones.push({ label: label, qty: 0 });
+    });
+    renderTd(); renderWorkTable('main'); renderBoxes(); scheduleSave();
+  };
+  window.addWorkRow = function(section) {
+    state.workRows.push({ title: 'Новая позиция', unit_price: 0, qty: 1, section: section, is_scs: false });
+    renderWorkTable(section); renderBoxes(); scheduleSave();
+  };
+  window.removeWorkRow = function(i) {
+    const section = state.workRows[i].section;
+    state.workRows.splice(i, 1);
+    renderWorkTable(section); renderBoxes(); scheduleSave();
+  };
+  window.addEquipRow = function() {
+    state.equipmentRows.push({ title: 'Новая позиция', unit_price: 0, qty: 1 });
+    renderEquip(); renderBoxes(); scheduleSave();
+  };
+  window.removeEquipRow = function(i) {
+    state.equipmentRows.splice(i, 1);
+    renderEquip(); renderBoxes(); scheduleSave();
+  };
+
+  document.getElementById('fTitle').addEventListener('input', function(e) { state.title = e.target.value; scheduleSave(); });
+  document.getElementById('fBranch').addEventListener('change', function(e) { state.branch = e.target.value; scheduleSave(); });
+  document.getElementById('fStoreNumber').addEventListener('input', function(e) { state.storeNumber = e.target.value; scheduleSave(); });
+  document.getElementById('fVat').addEventListener('input', function(e) { state.vatRate = Number(e.target.value); renderWorkTable('main'); renderWorkTable('kso'); renderBoxes(); scheduleSave(); });
+  document.getElementById('fPremium').addEventListener('input', function(e) { state.premium = Number(e.target.value); renderBoxes(); scheduleSave(); });
+  document.getElementById('fContractor').addEventListener('change', function(e) {
+    const cid = Number(e.target.value);
+    const contractor = state.contractors.find(function(c) { return c.id === cid; });
+    if (!contractor) return;
+    state.contractorId = cid;
+    state.contractorName = contractor.name;
+    function applyPrices(rows, sourceRows) {
+      rows.forEach(function(row) {
+        const match = sourceRows.find(function(s) { return s.title === row.title; });
+        if (match) row.unit_price = match.unit_price;
+      });
+    }
+    applyPrices(state.equipmentRows, contractor.equipmentRows);
+    applyPrices(state.workRows, contractor.workRows);
+    renderEquip(); renderWorkTable('main'); renderWorkTable('kso'); renderBoxes(); scheduleSave();
+  });
+
+  let saveTimer = null;
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 500);
+  }
+  async function doSave() {
+    try {
+      const res = await fetch(SAVE_URL, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: state.title,
+          branch: state.branch,
+          storeNumber: state.storeNumber,
+          contractorId: state.contractorId,
+          contractorName: state.contractorName,
+          vatRate: state.vatRate,
+          premium: state.premium,
+          equipmentRows: state.equipmentRows,
+          workRows: state.workRows,
+          tdZones: state.tdZones,
+        }),
+      });
+      const data = await res.json();
+      const ind = document.getElementById('saveIndicator');
+      ind.textContent = data.ok ? 'Сохранено' : 'Ошибка сохранения';
+      ind.classList.toggle('error', !data.ok);
+      ind.classList.add('show');
+      setTimeout(function() { ind.classList.remove('show'); }, 1500);
+    } catch (e) {
+      const ind = document.getElementById('saveIndicator');
+      ind.textContent = 'Ошибка сохранения';
+      ind.classList.add('error', 'show');
+    }
+  }
+
+  window.toggleArchive = async function() {
+    await fetch(ARCHIVE_URL, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } });
+    sessionStorage.setItem('scrollPos:' + location.pathname, window.scrollY);
+    location.reload();
+  };
+
+  function escapeHtml(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function buildBudgetHtml() {
+    const t = totals();
+    let html = '';
+    if (state.equipmentRows.length) {
+      html += '<table border="1" cellpadding="3" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:300px;font-family:Arial;font-size:11px;">';
+      html += '<tr style="background:#4472C4;">' +
+        '<th style="border:1px solid #666;color:#fff;text-align:left;padding:3px;">Оборудование</th>' +
+        '<th style="border:1px solid #666;color:#fff;text-align:right;padding:3px;width:45px;">Кол-во</th></tr>';
+      state.equipmentRows.forEach(function(r) {
+        html += '<tr>' +
+          '<td style="border:1px solid #999;padding:3px;">' + escapeHtml(r.title) + '</td>' +
+          '<td style="border:1px solid #999;padding:3px;text-align:right;">' + (Number(r.qty) || 0) + '</td></tr>';
+      });
+      html += '</table>';
+      html += '<table border="0" cellpadding="0" cellspacing="0"><tr><td style="font-size:9px;line-height:9px;">&nbsp;</td></tr></table>';
+    }
+
+    const rows = [
+      ['оборудование', t.equipmentTotal],
+      ['пнр ксо', t.ksoTotal],
+      ['пнр', t.workTotal],
+      ['скс', t.scsTotal],
+      ['премия', t.premium],
+      ['общее с НДС', t.grand],
+    ];
+    html += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:210px;font-family:Arial;font-size:11px;">';
+    rows.forEach(function(r) {
+      html += '<tr style="background:#8EB4E3;">' +
+        '<td style="border:1px solid #666;padding:5px;">' + escapeHtml(r[0]) + '</td>' +
+        '<td style="border:1px solid #666;padding:5px;text-align:right;">' + fmt(r[1]) + '</td></tr>';
+    });
+    html += '</table>';
+    return html;
+  }
+
+  window.prepareText = function() {
+    const html = buildBudgetHtml();
+    const box = document.getElementById('budPreview');
+    box.innerHTML = html;
+    box.style.display = 'block';
+    document.getElementById('copyBtn').style.display = 'inline-flex';
+  };
+
+  window.copyPreview = async function() {
+    const box = document.getElementById('budPreview');
+    const btn = document.getElementById('copyBtn');
+    const old = btn.textContent;
+    const t = totals();
+    const plainLines = ['Оборудование\tКол-во'];
+    state.equipmentRows.forEach(function(r) { plainLines.push((r.title || '') + '\t' + (Number(r.qty) || 0)); });
+    plainLines.push('');
+    plainLines.push('оборудование\t' + fmt(t.equipmentTotal));
+    plainLines.push('пнр ксо\t' + fmt(t.ksoTotal));
+    plainLines.push('пнр\t' + fmt(t.workTotal));
+    plainLines.push('скс\t' + fmt(t.scsTotal));
+    plainLines.push('премия\t' + fmt(t.premium));
+    plainLines.push('общее с НДС\t' + fmt(t.grand));
+    const plainText = plainLines.join('\n');
+
+    let copiedAsTable = false;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([box.innerHTML], { type: 'text/html' }),
+        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+      })]);
+      copiedAsTable = true;
+    } catch (e) {
+      // navigator.clipboard.write требует безопасный контекст (https или 127.0.0.1);
+      // при заходе по IP в локальной сети браузер его блокирует — копируем выделением
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(box);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        copiedAsTable = document.execCommand('copy');
+        sel.removeAllRanges();
+      } catch (e2) {
+        copiedAsTable = false;
+      }
+    }
+    if (!copiedAsTable) {
+      await navigator.clipboard.writeText(plainText);
+    }
+    btn.textContent = copiedAsTable ? '✓ Скопировано' : '✓ Скопирован текст';
+    setTimeout(function() { btn.textContent = old; }, 1500);
+  };
+
+  renderAll();
+})();
+</script>
+{% endblock %}

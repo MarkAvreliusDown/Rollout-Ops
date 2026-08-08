@@ -1,0 +1,112 @@
+{% extends "board/base.html" %}
+{% block title %}{{ branch_label }} — {{ type_label }}{% endblock %}
+{% block content %}
+<h1>{{ branch_label }} — {{ type_label }}</h1>
+
+<div class="tabs2">
+  <a href="{% url 'branch' branch=branch store_type='opening' %}" class="{% if store_type == 'opening' %}active{% endif %}">Новые Магазины</a>
+  <a href="{% url 'branch' branch=branch store_type='reconstruction' %}" class="{% if store_type == 'reconstruction' %}active{% endif %}">Реконструкция</a>
+  <a href="{% url 'branch' branch=branch store_type='extra' %}" class="{% if store_type == 'extra' %}active{% endif %}">Доп. работы</a>
+  <a href="{% url 'branch' branch=branch store_type='closing' %}" class="{% if store_type == 'closing' %}active{% endif %}">Закрытие</a>
+</div>
+
+<div class="row" style="justify-content:flex-end;margin-bottom:10px;">
+  {% if show_archived %}
+    <a class="btn secondary" href="?">← Активные</a>
+  {% else %}
+    <a class="btn secondary" href="?archived=1">📦 Архив</a>
+  {% endif %}
+</div>
+
+<div class="grid">
+  {% for s in stores %}
+  <a class="card" style="text-decoration:none;color:inherit;display:block;" href="{% url 'store_detail' s.id %}">
+    <strong>{{ s.number }}</strong>
+    <div class="muted">{{ s.address|default:"адрес не указан" }}</div>
+    {% if not show_archived %}
+      {% if s.open_tasks_count %}
+        <span class="badge badge-warn">{{ s.open_tasks_count }} открытых задач</span>
+      {% else %}
+        <span class="badge badge-ok">нет открытых задач</span>
+      {% endif %}
+      {% if s.checklist_total %}
+        <span class="badge badge-muted">Чек-лист: {{ s.checklist_done }}/{{ s.checklist_total }}</span>
+      {% endif %}
+    {% endif %}
+  </a>
+  {% empty %}
+    <p class="muted">{% if show_archived %}В архиве пока пусто.{% else %}Пока нет магазинов в этом разделе.{% endif %}</p>
+  {% endfor %}
+</div>
+
+{% if not show_archived %}
+<h2>Добавить магазин</h2>
+<form method="post" class="card">
+  {% csrf_token %}
+  <div class="field"><label>№ объекта</label><input name="number" required></div>
+  <div class="field"><label>Адрес</label><input name="address"></div>
+  <div class="field"><label>Регион</label><input name="region"></div>
+  <div class="field"><label>Контакт / подрядчик</label><input name="contact"></div>
+
+  {% if store_type == 'opening' %}
+  <div class="row" style="gap:12px;">
+    <div class="field" style="flex:1;min-width:160px;"><label>Дата открытия</label><input type="date" name="opening_date"></div>
+    <div class="field" style="flex:1;min-width:160px;"><label>Дата ВПК-2</label><input type="date" name="vpk2_date"></div>
+  </div>
+  <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Необязательно — если ввести сейчас, остальные даты задач посчитаются сразу же (как и на карточке магазина), и попадут в письма ниже. Можно оставить пустым и ввести позже на карточке магазина.</div>
+  {% endif %}
+
+  {% if store_type == 'opening' and letter_contractors %}
+  <div class="field">
+    <label>Подрядчики (для автозаполнения писем)</label>
+    <div class="row" style="gap:14px;">
+      {% for c in letter_contractors %}
+        <label style="text-transform:none;letter-spacing:normal;font-family:inherit;font-size:14px;color:var(--text);display:flex;align-items:center;gap:5px;width:auto;">
+          <input type="checkbox" name="contractors" value="{{ c.name }}" style="width:auto;"> {{ c.name }}
+        </label>
+      {% endfor %}
+    </div>
+    <div class="hint" style="margin-top:4px;">Отметьте, кто участвует в этом объекте — в письмах у выбранных подрядчиков сразу появится строка с филиалом/адресом/регионом и полями ниже. Даты задач подставятся сами, когда появятся.</div>
+  </div>
+
+  <div class="row" style="gap:12px;">
+    <div class="field" style="flex:1;min-width:160px;"><label>Кол-во касс</label><input name="cash_count"></div>
+    <div class="field" style="flex:1;min-width:160px;"><label>Кол-во КСО</label><input name="kso_count"></div>
+    <div class="field" style="flex:1;min-width:160px;">
+      <label>Формат по площади</label>
+      <select name="area_format" id="area_format_select" onchange="onAreaFormatChange()">
+        <option value="">—</option>
+        {% for value, label in area_format_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="row" style="gap:12px;">
+    <div class="field" style="flex:1;min-width:160px;"><label>Кол-во колонок</label><input name="columns_count"></div>
+    <div class="field" style="flex:1;min-width:160px;"><label>Тип колонок</label><input name="columns_type"></div>
+  </div>
+
+  <div class="row" style="gap:12px;align-items:flex-end;">
+    <div class="field" style="flex:1;min-width:160px;"><label>Кол-во точек доступа</label><input name="access_points_count" id="access_points_input"></div>
+    <div class="field" style="flex:1;min-width:160px;">
+      <label style="text-transform:none;letter-spacing:normal;font-family:inherit;font-size:14px;color:var(--text);display:flex;align-items:center;gap:5px;">
+        <input type="checkbox" name="has_meat_scale" style="width:auto;"> Весы «мясо» на объекте
+      </label>
+    </div>
+  </div>
+  <script>
+    const ACCESS_POINTS_DEFAULT_BY_FORMAT = {"200": "3", "300": "3", "400": "5", "500/600": ""};
+    function onAreaFormatChange() {
+      const format = document.getElementById('area_format_select').value;
+      const input = document.getElementById('access_points_input');
+      if (!input.value) input.value = ACCESS_POINTS_DEFAULT_BY_FORMAT[format] ?? '';
+    }
+  </script>
+  {% endif %}
+
+  <button type="submit">Добавить</button>
+</form>
+{% endif %}
+{% endblock %}

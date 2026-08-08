@@ -1,0 +1,22 @@
+{% extends "board/base.html" %}
+{% block title %}Логи ИИ{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;">
+  <h1>Логи ИИ</h1>
+  <div class="row">
+    <a class="btn secondary" href="{% url 'logs_download' %}">⬇ Скачать файл лога</a>
+    <button type="button" class="secondary" onclick="location.reload()">🔄 Обновить</button>
+    <button type="button" class="secondary" onclick="copyLog()">📋 Скопировать всё</button>
+  </div>
+</div>
+<p class="muted">Записи только за сегодня. Логи за предыдущие дни хранятся 6 дней в папке проекта: <code>logs/ai.log.ГГГГ-ММ-ДД</code> — можно открыть блокнотом или скинуть сюда для разбора.</p>
+
+<pre id="log-text" style="background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; font-size:12px; white-space:pre-wrap; overflow-x:auto; max-height:70vh; overflow-y:auto;">{{ log_text }}</pre>
+
+<script>
+function copyLog() {
+  const text = document.getElementById('log-text').textContent;
+  navigator.clipboard.writeText(text).then(() => alert('Скопировано в буфер обмена'));
+}
+</script>
+{% endblock %}

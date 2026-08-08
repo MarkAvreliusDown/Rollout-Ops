@@ -1,0 +1,264 @@
+{% extends "board/base.html" %}
+{% block title %}Подрядчики — бюджеты{% endblock %}
+{% block content %}
+{{ initial_state|json_script:"contractors-initial-state" }}
+<div style="display:none">{% csrf_token %}</div>
+
+<style>
+  .bud-table-scroll { overflow-x: auto; margin: 10px 0; }
+  .bud-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .bud-table th, .bud-table td { border: 1px solid var(--border); padding: 6px; text-align: left; vertical-align: middle; }
+  .bud-table th { background: var(--panel); white-space: nowrap; }
+  .bud-table input, .bud-table select { padding: 5px; font-size: 13px; }
+  .bud-table td.num input { text-align: right; }
+  .bud-table td.rm { width: 30px; text-align: center; }
+  .tabs { display: flex; margin-bottom: 16px; border-bottom: 3px solid var(--border); flex-wrap: wrap; align-items: flex-end; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 10px 14px; cursor: pointer; border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; margin-right: 6px; margin-bottom: -1px; background: var(--panel); color: var(--text); font-weight: bold; }
+  .tab.active { background: var(--card); border-color: var(--accent); color: var(--accent); }
+  .tab .tab-icon { opacity: .55; font-weight: normal; font-size: 13px; padding: 0 2px; }
+  html[data-theme="glass"] .tab .tab-icon { opacity: .75; }
+  .tab .tab-icon:hover { opacity: 1; }
+  .tab-add { padding: 10px 16px; cursor: pointer; border: 1px dashed var(--muted); border-radius: 8px 8px 0 0; margin-bottom: -1px; background: var(--panel); color: var(--muted); font-weight: bold; }
+  .save-indicator { font-size: 12px; color: var(--ok); opacity: 0; transition: opacity .4s; }
+  .save-indicator.show { opacity: 1; }
+  .save-indicator.error { color: var(--danger); }
+</style>
+
+<div class="row" style="justify-content:space-between;">
+  <h1 style="margin:0;">🏷 Подрядчики и прайс-листы</h1>
+  <span id="saveIndicator" class="save-indicator">Сохранено</span>
+</div>
+<p class="muted">Здесь хранятся цены на оборудование и работы по каждому подрядчику. При создании расчёта бюджета
+  этот прайс копируется в расчёт; при смене подрядчика внутри расчёта цены подставляются заново по совпадению названия позиции.</p>
+
+<div class="card">
+  <div class="field" style="max-width:200px;">
+    <label>Ставка НДС по умолчанию, %</label>
+    <input type="number" id="vatRate" step="0.1">
+  </div>
+</div>
+
+<div id="tabs" class="tabs"></div>
+
+<div id="workArea"></div>
+<p id="emptyHint" class="muted" style="display:none;">Нет ни одного подрядчика. Нажмите «+ Подрядчик», чтобы добавить первого.</p>
+
+<script>
+(function() {
+  const state = JSON.parse(document.getElementById('contractors-initial-state').textContent);
+  const SAVE_URL = '{% url "budget_contractors_save" %}';
+  let activeKey = state.contractorOrder[0] || null;
+
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+  }
+  function fmt(n) {
+    return (Number(n) || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function newKey() {
+    return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function renderTabs() {
+    const tabs = document.getElementById('tabs');
+    tabs.innerHTML = '';
+    state.contractorOrder.forEach(function(key) {
+      const c = state.contractors[key];
+      if (!c) return;
+      const tab = document.createElement('div');
+      tab.className = 'tab' + (key === activeKey ? ' active' : '');
+      tab.onclick = function() { activeKey = key; renderTabs(); renderWorkArea(); };
+      const name = document.createElement('span');
+      name.textContent = c.name || 'Без названия';
+      const del = document.createElement('span');
+      del.className = 'tab-icon';
+      del.textContent = '✕';
+      del.title = 'Удалить подрядчика';
+      del.onclick = function(e) {
+        e.stopPropagation();
+        if (!confirm('Удалить подрядчика «' + (c.name || '') + '» и его прайс-лист?')) return;
+        delete state.contractors[key];
+        state.contractorOrder = state.contractorOrder.filter(function(k) { return k !== key; });
+        if (activeKey === key) activeKey = state.contractorOrder[0] || null;
+        renderTabs(); renderWorkArea(); scheduleSave();
+      };
+      tab.appendChild(name);
+      tab.appendChild(del);
+      tabs.appendChild(tab);
+    });
+    const add = document.createElement('div');
+    add.className = 'tab-add';
+    add.textContent = '+ Подрядчик';
+    add.onclick = function() {
+      const key = newKey();
+      state.contractors[key] = { name: 'Новый подрядчик', equipmentRows: [], workRows: [] };
+      state.contractorOrder.push(key);
+      activeKey = key;
+      renderTabs(); renderWorkArea(); scheduleSave();
+    };
+    tabs.appendChild(add);
+  }
+
+  function renderWorkArea() {
+    const area = document.getElementById('workArea');
+    const emptyHint = document.getElementById('emptyHint');
+    area.innerHTML = '';
+    const c = activeKey ? state.contractors[activeKey] : null;
+    emptyHint.style.display = c ? 'none' : 'block';
+    if (!c) return;
+
+    const nameField = document.createElement('div');
+    nameField.className = 'field';
+    nameField.style.maxWidth = '340px';
+    nameField.innerHTML = '<label>Название подрядчика</label><input type="text" id="contractorName">';
+    area.appendChild(nameField);
+    nameField.querySelector('input').value = c.name || '';
+    nameField.querySelector('input').addEventListener('input', function(e) {
+      c.name = e.target.value;
+      renderTabs();
+      scheduleSave();
+    });
+
+    area.appendChild(buildTable('Оборудование', c.equipmentRows, false, function() {
+      c.equipmentRows.push({ title: 'Новая позиция', qty: 1, unit_price: 0 });
+      renderWorkArea(); scheduleSave();
+    }));
+
+    area.appendChild(buildTable('Виды работ (основные)', c.workRows.filter(function(r) { return r.section !== 'kso'; }), true, function() {
+      c.workRows.push({ title: 'Новая позиция', qty: 1, unit_price: 0, section: 'main', is_scs: false });
+      renderWorkArea(); scheduleSave();
+    }, c.workRows, 'main'));
+
+    area.appendChild(buildTable('ПНР КСО / доп. работы', c.workRows.filter(function(r) { return r.section === 'kso'; }), true, function() {
+      c.workRows.push({ title: 'Новая позиция', qty: 0, unit_price: 0, section: 'kso', is_scs: false });
+      renderWorkArea(); scheduleSave();
+    }, c.workRows, 'kso'));
+  }
+
+  function buildTable(caption, rows, isWork, onAdd, fullList, section) {
+    const wrap = document.createElement('div');
+    const h = document.createElement('h3');
+    h.textContent = caption;
+    wrap.appendChild(h);
+    const scroll = document.createElement('div');
+    scroll.className = 'bud-table-scroll';
+    const table = document.createElement('table');
+    table.className = 'bud-table';
+    table.innerHTML = '<thead><tr><th>Название</th><th style="width:90px;">Кол-во по умолч.</th><th style="width:120px;">Цена</th>' +
+      (isWork ? '<th style="width:70px;">СКС?</th>' : '') + '<th class="rm"></th></tr></thead><tbody></tbody>';
+    const tbody = table.querySelector('tbody');
+
+    rows.forEach(function(row) {
+      const tr = document.createElement('tr');
+      const tdTitle = document.createElement('td');
+      const titleInp = document.createElement('input');
+      titleInp.type = 'text';
+      titleInp.value = row.title || '';
+      titleInp.addEventListener('input', function(e) { row.title = e.target.value; scheduleSave(); });
+      tdTitle.appendChild(titleInp);
+
+      const tdQty = document.createElement('td');
+      tdQty.className = 'num';
+      const qtyInp = document.createElement('input');
+      qtyInp.type = 'number'; qtyInp.step = '1';
+      qtyInp.value = row.qty || 0;
+      qtyInp.addEventListener('input', function(e) { row.qty = Number(e.target.value); scheduleSave(); });
+      tdQty.appendChild(qtyInp);
+
+      const tdPrice = document.createElement('td');
+      tdPrice.className = 'num';
+      const priceInp = document.createElement('input');
+      priceInp.type = 'number'; priceInp.step = '0.01';
+      priceInp.value = row.unit_price || 0;
+      priceInp.addEventListener('input', function(e) { row.unit_price = Number(e.target.value); scheduleSave(); });
+      tdPrice.appendChild(priceInp);
+
+      tr.appendChild(tdTitle);
+      tr.appendChild(tdQty);
+      tr.appendChild(tdPrice);
+
+      if (isWork) {
+        const tdScs = document.createElement('td');
+        tdScs.style.textAlign = 'center';
+        const scsCb = document.createElement('input');
+        scsCb.type = 'checkbox';
+        scsCb.checked = !!row.is_scs;
+        scsCb.addEventListener('change', function(e) { row.is_scs = e.target.checked; scheduleSave(); });
+        tdScs.appendChild(scsCb);
+        tr.appendChild(tdScs);
+      }
+
+      const tdRm = document.createElement('td');
+      tdRm.className = 'rm';
+      const rmBtn = document.createElement('button');
+      rmBtn.type = 'button';
+      rmBtn.className = 'danger btn-small';
+      rmBtn.textContent = '✕';
+      rmBtn.onclick = function() {
+        const list = fullList || rows;
+        const idx = list.indexOf(row);
+        if (idx >= 0) list.splice(idx, 1);
+        renderWorkArea(); scheduleSave();
+      };
+      tdRm.appendChild(rmBtn);
+      tr.appendChild(tdRm);
+
+      tbody.appendChild(tr);
+    });
+
+    scroll.appendChild(table);
+    wrap.appendChild(scroll);
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'secondary btn-small';
+    addBtn.textContent = '+ Строка';
+    addBtn.onclick = onAdd;
+    wrap.appendChild(addBtn);
+    return wrap;
+  }
+
+  document.getElementById('vatRate').value = state.vatRate;
+  document.getElementById('vatRate').addEventListener('input', function(e) {
+    state.vatRate = Number(e.target.value);
+    scheduleSave();
+  });
+
+  let saveTimer = null;
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 600);
+  }
+  async function doSave() {
+    try {
+      const res = await fetch(SAVE_URL, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contractorOrder: state.contractorOrder,
+          contractors: Object.fromEntries(state.contractorOrder.map(function(k) {
+            const c = state.contractors[k];
+            return [k, { name: c.name, equipmentRows: c.equipmentRows, workRows: c.workRows }];
+          })),
+          vatRate: state.vatRate,
+        }),
+      });
+      const data = await res.json();
+      const ind = document.getElementById('saveIndicator');
+      ind.textContent = data.ok ? 'Сохранено' : 'Ошибка сохранения';
+      ind.classList.toggle('error', !data.ok);
+      ind.classList.add('show');
+      setTimeout(function() { ind.classList.remove('show'); }, 1500);
+    } catch (e) {
+      const ind = document.getElementById('saveIndicator');
+      ind.textContent = 'Ошибка сохранения';
+      ind.classList.add('error', 'show');
+    }
+  }
+
+  renderTabs();
+  renderWorkArea();
+})();
+</script>
+{% endblock %}

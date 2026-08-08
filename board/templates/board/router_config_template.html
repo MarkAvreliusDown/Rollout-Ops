@@ -1,0 +1,23 @@
+
+{% extends "board/base.html" %}
+{% block title %}Шаблон конфига роутера{% endblock %}
+{% block content %}
+<h1>🔧 Шаблон конфига роутера</h1>
+<p class="muted">
+  Здесь хранится «рыба» конфига (например, для FortiGate) с переменными вида
+  <code>&lt;SHOPID&gt;</code>, <code>&lt;WANIP&gt;</code> и т.д. — они автоматически
+  становятся полями формы на карточке магазина в блоке «Конфиг роутера». Если
+  прошивку/правила обновили — просто вставьте сюда новый текст целиком и сохраните.
+</p>
+
+<div class="card">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label>Текст шаблона</label>
+      <textarea name="template_text" rows="30" style="width:100%;font-family:monospace;font-size:12.5px;white-space:pre;overflow-x:auto;">{{ template.template_text }}</textarea>
+    </div>
+    <button type="submit" class="accent">💾 Сохранить шаблон</button>
+  </form>
+</div>
+{% endblock %}

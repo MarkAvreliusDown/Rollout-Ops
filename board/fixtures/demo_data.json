@@ -1,0 +1,159 @@
+[
+{
+  "model": "board.store",
+  "pk": 2,
+  "fields": {
+    "branch": "cf",
+    "store_type": "opening",
+    "number": "Демо-101",
+    "address": "г. Пример, ул. Тестовая, д. 1",
+    "region": "Демо-регион",
+    "contact": "",
+    "notes": "Это демонстрационный магазин — пример того, как выглядит карточка объекта.",
+    "is_archived": false,
+    "created_at": "2026-08-08T16:12:31.549Z",
+    "contractors": [],
+    "kso_count": "",
+    "cash_count": "",
+    "area_format": "",
+    "columns_count": "",
+    "columns_type": "",
+    "has_meat_scale": false,
+    "access_points_count": "",
+    "kanban_status": "new"
+  }
+},
+{
+  "model": "board.task",
+  "pk": 2,
+  "fields": {
+    "store": 2,
+    "parent": null,
+    "title": "Открытие",
+    "due_date": "2026-08-22",
+    "due_time": null,
+    "status": "progress",
+    "order": 0,
+    "anchor_key": "opening",
+    "depends_on": null,
+    "offset_days": null,
+    "icon_name": "",
+    "icon_color": "",
+    "notified_at": null,
+    "completed_at": null,
+    "created_at": "2026-08-08T16:12:31.555Z"
+  }
+},
+{
+  "model": "board.task",
+  "pk": 3,
+  "fields": {
+    "store": 2,
+    "parent": null,
+    "title": "ВПК-2",
+    "due_date": "2026-08-17",
+    "due_time": null,
+    "status": "progress",
+    "order": 1,
+    "anchor_key": "vpk2",
+    "depends_on": null,
+    "offset_days": null,
+    "icon_name": "",
+    "icon_color": "",
+    "notified_at": null,
+    "completed_at": null,
+    "created_at": "2026-08-08T16:12:31.561Z"
+  }
+},
+{
+  "model": "board.task",
+  "pk": 4,
+  "fields": {
+    "store": 2,
+    "parent": null,
+    "title": "СКС",
+    "due_date": "2026-08-14",
+    "due_time": null,
+    "status": "progress",
+    "order": 2,
+    "anchor_key": null,
+    "depends_on": "vpk2",
+    "offset_days": -3,
+    "icon_name": "",
+    "icon_color": "",
+    "notified_at": null,
+    "completed_at": null,
+    "created_at": "2026-08-08T16:12:31.566Z"
+  }
+},
+{
+  "model": "board.task",
+  "pk": 5,
+  "fields": {
+    "store": 2,
+    "parent": null,
+    "title": "ПНР",
+    "due_date": "2026-08-15",
+    "due_time": null,
+    "status": "progress",
+    "order": 3,
+    "anchor_key": null,
+    "depends_on": "vpk2",
+    "offset_days": -2,
+    "icon_name": "",
+    "icon_color": "",
+    "notified_at": null,
+    "completed_at": null,
+    "created_at": "2026-08-08T16:12:31.574Z"
+  }
+},
+{
+  "model": "board.task",
+  "pk": 6,
+  "fields": {
+    "store": 2,
+    "parent": null,
+    "title": "Пример дополнительной задачи",
+    "due_date": "2026-08-11",
+    "due_time": null,
+    "status": "progress",
+    "order": 4,
+    "anchor_key": null,
+    "depends_on": null,
+    "offset_days": null,
+    "icon_name": "",
+    "icon_color": "",
+    "notified_at": null,
+    "completed_at": null,
+    "created_at": "2026-08-08T16:12:31.580Z"
+  }
+},
+{
+  "model": "board.contact",
+  "pk": 1,
+  "fields": {
+    "store": 2,
+    "branch": "",
+    "name": "Иван Иванов",
+    "role": "Директор магазина",
+    "phone": "+7 900 000-00-00",
+    "telegram": "",
+    "max_contact": "",
+    "created_at": "2026-08-08T16:12:31.585Z"
+  }
+},
+{
+  "model": "board.note",
+  "pk": 2,
+  "fields": {
+    "text": "Пример общей заметки без привязки к магазину.",
+    "due_date": "2026-08-09",
+    "due_time": null,
+    "task": null,
+    "is_archived": false,
+    "source": "web",
+    "created_at": "2026-08-08T16:12:31.590Z",
+    "notified_at": null
+  }
+}
+]

@@ -1,0 +1,30 @@
+{% extends "board/base.html" %}
+{% block title %}Архив заметок{% endblock %}
+{% block content %}
+<p class="muted"><a class="plain" href="{% url 'notes' %}">← Заметки</a></p>
+<h1>Архив заметок</h1>
+<p class="muted">Отсортировано по дате, от новых к старым.</p>
+
+{% regroup notes by created_at|date:"F Y" as note_groups %}
+{% for group in note_groups %}
+  <h2>{{ group.grouper }}</h2>
+  {% for n in group.list %}
+  <div class="card">
+    <div class="muted">
+      {{ n.created_at|date:"d.m.Y H:i" }}
+      {% if n.task %} · {{ n.task.store.get_branch_display }} · {{ n.task.store.number }} · задача «{{ n.task.title }}»{% endif %}
+    </div>
+    <p style="white-space:pre-wrap;">{{ n.text }}</p>
+    {% if n.files.all %}
+      <div class="row">
+        {% for f in n.files.all %}
+          <a class="plain badge badge-muted" href="{{ f.file.url }}" target="_blank">📎 {{ f.file.name|slice:"6:" }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% empty %}
+  <p class="muted">В архиве пока пусто.</p>
+{% endfor %}
+{% endblock %}

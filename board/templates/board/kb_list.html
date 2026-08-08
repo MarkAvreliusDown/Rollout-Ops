@@ -1,0 +1,109 @@
+{% extends "board/base.html" %}
+{% block title %}База знаний{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;">
+  <h1>База знаний</h1>
+  <div class="row">
+    <a class="btn secondary" href="{% url 'kb_import' %}">⬆ Импорт из Word/PDF</a>
+    <a class="btn accent" href="{% url 'kb_add' %}">+ Новая статья</a>
+  </div>
+</div>
+
+<div class="card">
+  <label>Спросить у ИИ, где искать</label>
+  <div class="row" style="margin-top:6px;">
+    <input id="kb-ai-question" placeholder="Например: как настроить резервный канал связи?" style="flex:1;" onkeydown="if(event.key==='Enter'){kbAiSearch();}">
+    <button type="button" class="accent" onclick="kbAiSearch()">Найти</button>
+  </div>
+  <div id="kb-ai-result" class="muted" style="margin-top:10px;"></div>
+  <details style="margin-top:6px;">
+    <summary class="muted" style="cursor:pointer;">Лог запроса</summary>
+    <div id="kb-ai-log" class="muted" style="font-family:monospace; font-size:11px; margin-top:6px; white-space:pre-wrap;"></div>
+  </details>
+</div>
+
+<form method="get" class="row" style="margin:14px 0;">
+  <input name="q" placeholder="Поиск по заголовкам..." value="{{ query }}" style="flex:1;">
+  <button type="submit" class="secondary">Искать</button>
+</form>
+
+{% if query %}
+<div class="grid">
+  {% for a in articles %}
+  <a class="card" style="text-decoration:none;color:inherit;display:block;" href="{% url 'kb_detail' a.id %}">
+    <strong>{{ a.title }}</strong>
+    <div class="muted">обновлено {{ a.updated_at|date:"d.m.Y" }}</div>
+  </a>
+  {% empty %}
+    <p class="muted">Ничего не найдено.</p>
+  {% endfor %}
+</div>
+{% else %}
+<div class="kb-tile-grid">
+  {% for c in categories %}
+  <a class="kb-tile" href="{% url 'kb_category_detail' c.id %}">
+    <img src="{{ c.image.url }}" alt="{{ c.name }}">
+    {% if not c.image_has_caption %}
+    <div class="kb-tile-caption">{{ c.name }}</div>
+    {% endif %}
+  </a>
+  {% endfor %}
+
+  {% if has_uncategorized %}
+  <a class="kb-tile" href="{% url 'kb_category_detail' 0 %}">
+    <div class="kb-tile-plain">Без категории</div>
+  </a>
+  {% endif %}
+
+  <a class="kb-tile" href="{% url 'kb_category_add' %}">
+    <div class="kb-tile-add">
+      <div class="kb-tile-plus">+</div>
+      <div class="kb-tile-add-label">Добавить категорию</div>
+    </div>
+  </a>
+</div>
+{% endif %}
+
+<script>
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+function kbLog(msg) {
+  const el = document.getElementById('kb-ai-log');
+  el.textContent += (el.textContent ? '\n' : '') + msg;
+}
+
+async function kbAiSearch() {
+  const question = document.getElementById('kb-ai-question').value.trim();
+  if (!question) return;
+  const resultEl = document.getElementById('kb-ai-result');
+  document.getElementById('kb-ai-log').textContent = '';
+  resultEl.textContent = 'Ищу...';
+  try {
+    const res = await fetch('{% url "kb_ai_search" %}', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCookie('csrftoken'),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'question=' + encodeURIComponent(question),
+    });
+    const data = await res.json();
+    (data.log || []).forEach(kbLog);
+    if (data.error) {
+      resultEl.textContent = '❌ ' + data.error;
+    } else if (data.found) {
+      resultEl.innerHTML = '✅ Похоже, тебе нужна статья: <a class="plain" href="/kb/' + data.article_id + '/"><strong>' + data.title + '</strong></a><br><span class="muted">' + data.reason + '</span>';
+    } else {
+      resultEl.textContent = '🤷 Подходящей статьи не нашлось. ' + (data.reason || '');
+    }
+  } catch (e) {
+    kbLog('Сетевая ошибка: ' + e);
+    resultEl.textContent = '❌ Не удалось связаться с сервером.';
+  }
+}
+</script>
+{% endblock %}

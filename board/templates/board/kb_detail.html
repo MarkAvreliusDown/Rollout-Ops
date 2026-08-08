@@ -1,0 +1,58 @@
+{% extends "board/base.html" %}
+{% block title %}{{ article.title }}{% endblock %}
+{% block content %}
+<p class="muted"><a class="plain" href="{% url 'kb_list' %}">← База знаний</a></p>
+<div class="row" style="justify-content:space-between;align-items:flex-start;">
+  <h1>{{ article.title }}</h1>
+  <div class="row">
+    <a class="btn secondary" href="{% url 'kb_edit' article.id %}">✎ Редактировать</a>
+    <a class="btn secondary" href="{% url 'kb_download_docx' article.id %}">⬇ Word</a>
+    <a class="btn secondary" href="{% url 'kb_print' article.id %}" target="_blank">⬇ PDF</a>
+    <a class="btn secondary" href="{% url 'kb_download_txt' article.id %}">⬇ TXT</a>
+    <form method="post" action="{% url 'kb_delete' article.id %}" onsubmit="return confirm('Удалить статью целиком?')">
+      {% csrf_token %}
+      <button type="submit" class="danger">Удалить</button>
+    </form>
+  </div>
+</div>
+<p class="muted">обновлено {{ article.updated_at|date:"d.m.Y H:i" }}</p>
+
+<div class="kb-detail-layout">
+  <div class="kb-detail-main">
+    <div class="card" style="line-height:1.6; overflow-x:auto;">
+      {{ article.content|safe }}
+    </div>
+  </div>
+  <div class="kb-detail-files">
+    <h2>Файлы</h2>
+    <div class="row">
+      {% for f in article.files.all %}
+        <span class="badge badge-muted" style="padding:6px 10px;">
+          <a class="plain" href="{{ f.file.url }}" target="_blank">📎 {{ f.filename }}</a>
+          <form method="post" action="{% url 'kb_delete_file' f.id %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="danger" style="padding:1px 6px;font-size:10px;">✕</button>
+          </form>
+        </span>
+      {% empty %}
+        <p class="muted">Файлов пока нет.</p>
+      {% endfor %}
+    </div>
+    <form method="post" action="{% url 'kb_add_file' article.id %}" enctype="multipart/form-data" class="row" style="margin-top:10px;">
+      {% csrf_token %}
+      <input type="file" name="files" multiple style="flex:1;">
+      <button type="submit" class="secondary">+ Прикрепить файл</button>
+    </form>
+  </div>
+</div>
+
+<style>
+  .kb-detail-layout { display: flex; gap: 20px; align-items: flex-start; }
+  .kb-detail-main { flex: 1; min-width: 0; }
+  .kb-detail-files { flex: 0 0 260px; width: 260px; }
+  @media (max-width: 860px) {
+    .kb-detail-layout { flex-direction: column; }
+    .kb-detail-files { width: 100%; flex: 1; }
+  }
+</style>
+{% endblock %}

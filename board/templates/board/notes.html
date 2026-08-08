@@ -1,0 +1,102 @@
+{% extends "board/base.html" %}
+{% block title %}Заметки{% endblock %}
+{% block content %}
+<h1>Заметки</h1>
+<p class="muted">Общие заметки, не привязанные к конкретному магазину. <a class="plain" href="{% url 'notes_archive' %}">Смотреть архив →</a></p>
+
+<form method="post" action="{% url 'add_note' %}" enctype="multipart/form-data" class="card">
+  {% csrf_token %}
+  <div class="field">
+    <label>Новая заметка</label>
+    <textarea name="text" rows="3" placeholder="Что нужно не забыть..." required></textarea>
+  </div>
+  <div class="row">
+    <div class="field" style="flex:1;">
+      <label>Дата (необязательно)</label>
+      <input type="date" name="due_date">
+    </div>
+    <div class="field" style="flex:1;">
+      <label>Время (необязательно, для Telegram-уведомления)</label>
+      <input type="time" name="due_time">
+    </div>
+  </div>
+  <div class="field">
+    <label>Файлы (необязательно)</label>
+    <input type="file" name="files" multiple>
+  </div>
+  <button type="submit">Добавить</button>
+</form>
+
+{% for n in notes %}
+<div class="card">
+  <div class="muted">{{ n.created_at|date:"d.m.Y H:i" }}{% if n.due_date %} · <strong>срок {{ n.due_date|date:"d.m.Y" }}{% if n.due_time %} {{ n.due_time|time:"H:i" }}{% endif %}</strong>{% endif %}</div>
+  <p id="note-text-{{ n.id }}" style="white-space:pre-wrap;">{{ n.text }}</p>
+  {% if n.files.all %}
+  <div class="row">
+    {% for f in n.files.all %}
+      <span class="badge badge-muted">
+        <a class="plain" href="{{ f.file.url }}" target="_blank">📎 {{ f.file.name|slice:"6:" }}</a>
+        <form method="post" action="{% url 'delete_note_file' f.id %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="danger" style="padding:1px 6px;font-size:10px;">✕</button>
+        </form>
+      </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'edit_note' n.id %}" id="edit-form-{{ n.id }}" class="card" style="display:none;margin-top:10px;background:transparent;">
+    {% csrf_token %}
+    <div class="field">
+      <label>Текст</label>
+      <textarea name="text" rows="3">{{ n.text }}</textarea>
+    </div>
+    <div class="row">
+      <div class="field" style="flex:1;">
+        <label>Дата</label>
+        <input type="date" name="due_date" value="{{ n.due_date|date:'Y-m-d' }}">
+      </div>
+      <div class="field" style="flex:1;">
+        <label>Время (для Telegram-уведомления)</label>
+        <input type="time" name="due_time" value="{{ n.due_time|time:'H:i' }}">
+      </div>
+    </div>
+    <div class="row">
+      <button type="submit">Сохранить</button>
+      <button type="button" class="secondary" onclick="toggleNoteEdit({{ n.id }})">Отмена</button>
+    </div>
+  </form>
+
+  <div id="note-actions-{{ n.id }}" class="row" style="margin-top:8px;">
+    <form method="post" action="{% url 'add_note_file' n.id %}" enctype="multipart/form-data" class="row" style="flex:1;">
+      {% csrf_token %}
+      <input type="file" name="files" multiple style="flex:1;min-width:180px;">
+      <button type="submit" class="secondary">+ Файл</button>
+    </form>
+    <button type="button" class="secondary" onclick="toggleNoteEdit({{ n.id }})">✏️ Редактировать</button>
+    <form method="post" action="{% url 'archive_note' n.id %}" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit" class="secondary">🗄 В архив</button>
+    </form>
+    <form method="post" action="{% url 'delete_note' n.id %}" onsubmit="return confirm('Удалить заметку?')" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit" class="danger">Удалить заметку</button>
+    </form>
+  </div>
+</div>
+{% empty %}
+<p class="muted">Заметок пока нет.</p>
+{% endfor %}
+
+<script>
+function toggleNoteEdit(id) {
+  const form = document.getElementById('edit-form-' + id);
+  const actions = document.getElementById('note-actions-' + id);
+  const text = document.getElementById('note-text-' + id);
+  const editing = form.style.display !== 'none';
+  form.style.display = editing ? 'none' : 'block';
+  actions.style.display = editing ? 'flex' : 'none';
+  text.style.display = editing ? 'block' : 'none';
+}
+</script>
+{% endblock %}

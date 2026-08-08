@@ -1,0 +1,26 @@
+{% extends "board/base.html" %}
+{% block title %}Новая категория{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;">
+  <h1>Новая категория</h1>
+  <a class="btn secondary" href="{% url 'kb_list' %}">← Назад</a>
+</div>
+
+<div class="card" style="max-width:420px;">
+  {% if error %}
+  <p style="color:var(--danger); margin-top:0;">{{ error }}</p>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="field">
+      <label>Название</label>
+      <input type="text" name="name" value="{{ name }}" required>
+    </div>
+    <div class="field">
+      <label>Картинка</label>
+      <input type="file" name="image" accept="image/*" required>
+    </div>
+    <button type="submit" class="accent">Сохранить</button>
+  </form>
+</div>
+{% endblock %}

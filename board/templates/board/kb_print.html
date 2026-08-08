@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>{{ article.title }}</title>
+<style>
+  body { font-family: Arial, sans-serif; color: #26261F; padding: 30px; line-height: 1.6; max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 22px; }
+  img { max-width: 100%; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border: 1px solid #999; padding: 6px; }
+  .print-hint { background: #eef; padding: 10px 14px; border-radius: 6px; margin-bottom: 20px; font-size: 13px; }
+  @media print {
+    .print-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="print-hint">Откроется диалог печати — выбери принтер "Сохранить как PDF" (Microsoft Print to PDF), чтобы сохранить файл.</div>
+  <h1>{{ article.title }}</h1>
+  {{ article.content|safe }}
+  <script>
+    window.onload = function() { setTimeout(() => window.print(), 300); };
+  </script>
+</body>
+</html>

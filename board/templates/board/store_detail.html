@@ -1,0 +1,631 @@
+
+{% extends "board/base.html" %}
+{% load board_extras %}
+{% block title %}{{ store.number }}{% endblock %}
+{% block content %}
+<p class="muted" style="margin:0 0 8px;"><a class="plain" href="{% url 'branch' branch=store.branch store_type=store.store_type %}">← {{ store.get_branch_display }} / {{ store.get_store_type_display }}</a></p>
+
+<div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+  <div>
+    <h1 style="margin:0;">{{ store.number }}</h1>
+    <p class="muted" style="margin:4px 0 0;">{{ store.address }}{% if store.region %} · {{ store.region }}{% endif %}{% if store.contact %} · {{ store.contact }}{% endif %}</p>
+  </div>
+  <div class="row" style="gap:8px;flex-shrink:0;">
+    <form method="post" action="{% url 'duplicate_store' store.id %}" onsubmit="return confirm('Создать копию магазина со всеми задачами?')">
+      {% csrf_token %}
+      <button type="submit" class="secondary" style="font-size:13px;">⧉ Дублировать</button>
+    </form>
+    <form method="post" action="{% url 'archive_store' store.id %}" onsubmit="return confirm('{% if store.is_archived %}Вернуть магазин из архива?{% else %}Перенести магазин в архив?{% endif %}')">
+      {% csrf_token %}
+      {% if store.is_archived %}
+        <button type="submit" class="secondary" style="font-size:13px;">↩ Вернуть</button>
+      {% else %}
+        <button type="submit" class="secondary" style="font-size:13px;">📦 Архив</button>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="tabpanel-bar" role="tablist">
+  <button type="button" class="tabpanel-btn active" data-tab="tasks" onclick="showStoreTab('tasks')">Задачи</button>
+  <button type="button" class="tabpanel-btn" data-tab="log" onclick="showStoreTab('log')">Журнал и отчёт</button>
+  <button type="button" class="tabpanel-btn" data-tab="tech" onclick="showStoreTab('tech')">Техданные</button>
+  <button type="button" class="tabpanel-btn" data-tab="problems" onclick="showStoreTab('problems')">Проблемы</button>
+  <button type="button" class="tabpanel-btn" data-tab="checklist" onclick="showStoreTab('checklist')">Чек-лист</button>
+  <button type="button" class="tabpanel-btn" data-tab="contacts" onclick="showStoreTab('contacts')">Контакты</button>
+</div>
+
+<!-- ===================== ЗАДАЧИ ===================== -->
+<div class="tabpanel active" id="tab-tasks">
+
+{% regroup tasks by status as task_status_groups %}
+<div class="row" style="justify-content:space-between;margin-bottom:10px;">
+  <span class="muted">{{ tasks|length }} задач{% for g in task_status_groups %}{% if g.grouper == "done" %} · {{ g.list|length }} выполнено{% endif %}{% endfor %}</span>
+  <div class="row">
+    <button type="button" class="secondary" id="view-list-btn" onclick="setTasksView('list')">☰ Список</button>
+    <button type="button" class="secondary" id="view-tile-btn" onclick="setTasksView('tile')">⊞ Плитки</button>
+  </div>
+</div>
+
+<div id="tasks-list" class="tasks-list">
+  {% for t in tasks %}
+  <details class="card task-card" id="task-{{ t.id }}">
+    <summary class="task-row-summary">
+      {% task_icon_badge t %}
+      <span class="task-row-title">{{ t.title }}</span>
+      {% if t.due_time %}<span class="badge badge-muted">🕐 {{ t.due_time|time:"H:i" }}</span>{% endif %}
+      {% if t.anchor_key %}<span class="badge badge-warn">⚓ опорная</span>{% endif %}
+      {% if t.depends_on %}<span class="badge badge-muted">авторасчёт</span>{% endif %}
+      <span class="task-row-date">{% if t.due_date %}{{ t.due_date|date:"d.m.Y" }}{% else %}без даты{% endif %}</span>
+      <span class="badge {% if t.status == 'done' %}badge-ok{% elif t.status == 'waiting' %}badge-warn{% else %}badge-muted{% endif %}">{{ t.get_status_display }}</span>
+    </summary>
+
+    <div class="task-row-body">
+      <div class="row" style="justify-content:flex-end;gap:4px;margin-bottom:8px;">
+        <form method="post" action="{% url 'toggle_task_anchor' t.id %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="secondary" style="padding:2px 7px;font-size:11px;">{% if t.anchor_key %}🔑 ключевая{% else %}Сделать ключевой{% endif %}</button>
+        </form>
+        <form method="post" action="{% url 'move_task' t.id 'up' %}">{% csrf_token %}<button type="submit" class="secondary" style="padding:4px 8px;">▲</button></form>
+        <form method="post" action="{% url 'move_task' t.id 'down' %}">{% csrf_token %}<button type="submit" class="secondary" style="padding:4px 8px;">▼</button></form>
+        <form method="post" action="{% url 'delete_task' t.id %}" onsubmit="return confirm('Удалить задачу?')">
+          {% csrf_token %}
+          <button type="submit" class="danger" style="padding:4px 8px;">✕</button>
+        </form>
+      </div>
+
+      <div class="row">
+        <form method="post" action="{% url 'update_task_due_date' t.id %}" class="row" style="flex:1;">
+          {% csrf_token %}
+          <input type="date" name="due_date" value="{{ t.due_date|date:'Y-m-d' }}" style="flex:1;">
+          <input type="time" name="due_time" value="{{ t.due_time|time:'H:i' }}" style="flex:0 0 90px;" title="Время (необязательно)">
+          <button type="submit" class="secondary" style="padding:8px 10px;">✓</button>
+        </form>
+        <form method="post" action="{% url 'update_task_status' t.id %}" style="flex:1;">
+          {% csrf_token %}
+          <select name="status" onchange="this.form.submit()">
+            <option value="progress" {% if t.status == "progress" %}selected{% endif %}>В работе</option>
+            <option value="waiting" {% if t.status == "waiting" %}selected{% endif %}>Ждём подрядчика</option>
+            <option value="done" {% if t.status == "done" %}selected{% endif %}>Готово</option>
+          </select>
+        </form>
+      </div>
+
+      <details class="task-details">
+        <summary>Подзадачи{% if t.subtasks.all %} ({{ t.subtasks.all|length }}){% endif %}, заметки и иконка</summary>
+
+        <form method="post" action="{% url 'update_task_icon' t.id %}" style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+          {% csrf_token %}
+          {% icon_picker t.icon_name t.icon_color %}
+          <button type="submit" class="secondary" style="margin-top:4px;font-size:12px;padding:5px 10px;">Сохранить иконку</button>
+        </form>
+
+        {% for st in t.subtasks.all %}
+        <div style="padding:6px 0;border-bottom:1px solid var(--border);" id="task-{{ st.id }}">
+          <div class="row" style="justify-content:space-between;">
+            <span style="{% if st.status == 'done' %}text-decoration:line-through;color:var(--muted);{% endif %}">{{ st.title }}</span>
+            <div class="row" style="gap:4px;">
+              <form method="post" action="{% url 'update_task_status' st.id %}">
+                {% csrf_token %}
+                <select name="status" onchange="this.form.submit()" style="font-size:11px;padding:3px 4px;">
+                  <option value="progress" {% if st.status == "progress" %}selected{% endif %}>В работе</option>
+                  <option value="waiting" {% if st.status == "waiting" %}selected{% endif %}>Ждём</option>
+                  <option value="done" {% if st.status == "done" %}selected{% endif %}>Готово</option>
+                </select>
+              </form>
+              <form method="post" action="{% url 'delete_task' st.id %}" onsubmit="return confirm('Удалить подзадачу?')">
+                {% csrf_token %}
+                <button type="submit" class="danger" style="padding:2px 7px;font-size:11px;">✕</button>
+              </form>
+            </div>
+          </div>
+
+          {% if st.notes.all %}
+          <div style="margin:6px 0 0 10px;">
+            {% for n in st.notes.all %}
+              <div style="margin-bottom:6px;" id="note-{{ n.id }}">
+                <div class="muted" style="font-size:10.5px;">{{ n.created_at|date:"d.m.Y H:i" }}{% if n.due_date %} · срок {{ n.due_date|date:"d.m.Y" }}{% endif %}</div>
+                {% if n.text %}<p style="white-space:pre-wrap;margin:2px 0;font-size:12.5px;">{{ n.text }}</p>{% endif %}
+                {% if n.files.all %}
+                  <div class="row">
+                    {% for f in n.files.all %}
+                      <a class="plain badge badge-muted" href="{{ f.file.url }}" target="_blank">📎 {{ f.file.name|slice:"6:" }}</a>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                <form method="post" action="{% url 'delete_note' n.id %}" onsubmit="return confirm('Удалить заметку?')">
+                  {% csrf_token %}
+                  <button type="submit" class="secondary" style="padding:1px 7px;font-size:10px;">Удалить</button>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <form method="post" action="{% url 'add_task_note' st.id %}" enctype="multipart/form-data" style="margin:6px 0 0 10px;">
+            {% csrf_token %}
+            <div class="row">
+              <input name="text" placeholder="Заметка к подзадаче / файл..." style="flex:2;min-width:140px;font-size:12px;padding:6px 8px;">
+              <input type="date" name="due_date" style="flex:1;min-width:120px;font-size:12px;padding:6px 8px;">
+              <input type="file" name="files" multiple style="flex:1;min-width:170px;font-size:12px;">
+              <button type="submit" class="secondary" style="padding:5px 9px;font-size:11px;">+</button>
+            </div>
+          </form>
+        </div>
+        {% endfor %}
+        <form method="post" action="{% url 'add_subtask' t.id %}" class="row" style="margin-top:8px;">
+          {% csrf_token %}
+          <input name="title" placeholder="Новая подзадача" style="flex:1;">
+          <button type="submit" class="secondary">+</button>
+        </form>
+
+        {% if t.notes.all %}
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          {% for n in t.notes.all %}
+            <div style="margin-bottom:8px;" id="note-{{ n.id }}">
+              <div class="muted">{{ n.created_at|date:"d.m.Y H:i" }}</div>
+              <p style="white-space:pre-wrap;margin:2px 0;">{{ n.text }}</p>
+              {% if n.files.all %}
+                <div class="row">
+                  {% for f in n.files.all %}
+                    <a class="plain badge badge-muted" href="{{ f.file.url }}" target="_blank">📎 {{ f.file.name|slice:"6:" }}</a>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <form method="post" action="{% url 'delete_note' n.id %}" onsubmit="return confirm('Удалить заметку?')">
+                {% csrf_token %}
+                <button type="submit" class="secondary" style="padding:1px 8px;font-size:11px;">Удалить заметку</button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" action="{% url 'add_task_note' t.id %}" enctype="multipart/form-data" style="margin-top:8px;">
+          {% csrf_token %}
+          <div class="row">
+            <input name="text" placeholder="Заметка к этой задаче..." style="flex:2;min-width:160px;">
+            <input type="date" name="due_date" style="flex:1;min-width:130px;" title="Дата (необязательно)">
+            <input type="file" name="files" multiple style="flex:1;min-width:180px;">
+            <button type="submit" class="secondary">+ Заметка</button>
+          </div>
+        </form>
+      </details>
+    </div>
+  </details>
+  {% empty %}
+  <p class="muted">Задач пока нет.</p>
+  {% endfor %}
+</div>
+
+<form method="post" action="{% url 'add_task' store.id %}" class="card">
+  {% csrf_token %}
+  <div class="row">
+    <input name="title" placeholder="Новая задача" required style="flex:2;">
+    <input type="date" name="due_date" style="flex:1;">
+    <input type="time" name="due_time" style="flex:0 0 90px;" title="Время (необязательно)">
+    <button type="submit">+ Добавить</button>
+  </div>
+  <details style="margin-top:8px;">
+    <summary class="muted" style="cursor:pointer;font-size:12px;">🎨 Иконка (необязательно, иначе — авто)</summary>
+    {% icon_picker %}
+  </details>
+</form>
+
+</div>
+
+<!-- ===================== ЖУРНАЛ И ОТЧЁТ ===================== -->
+<div class="tabpanel" id="tab-log">
+
+<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px;">
+  <h2 style="margin:0;">📋 Журнал работ</h2>
+  <span class="muted">записей: {{ logs|length }}</span>
+</div>
+<p class="muted" style="margin:2px 0 10px;">Что происходит по объекту прямо сейчас. Отсюда потом собирается отчёт.</p>
+
+<form method="post" action="{% url 'add_store_log' store.id %}" enctype="multipart/form-data" class="card">
+  {% csrf_token %}
+  <textarea name="text" rows="2" placeholder="Например: терминал снят, ждём подрядчика..." required></textarea>
+  <div class="row" style="margin-top:8px;">
+    <input type="file" name="files" multiple style="flex:1;min-width:180px;">
+    <button type="submit" class="accent">+ Запись</button>
+  </div>
+</form>
+
+{% for l in logs %}
+<div class="card" style="padding:12px;">
+  <div class="row" style="justify-content:space-between;align-items:flex-start;">
+    <span class="muted">{{ l.created_at|date:"d.m.Y H:i" }}{% if l.source == "tg" %} · ✈️ из Telegram{% elif l.source == "report" %} · 📄 из старого отчёта{% endif %}</span>
+    <form method="post" action="{% url 'delete_store_log' l.id %}" onsubmit="return confirm('Удалить запись?')">
+      {% csrf_token %}
+      <button type="submit" class="danger" style="padding:2px 8px;font-size:11px;">✕</button>
+    </form>
+  </div>
+
+  <p style="white-space:pre-wrap;margin:5px 0 7px;">{{ l.text }}</p>
+
+  {% if l.files.all %}
+  <div class="row">
+    {% for f in l.files.all %}
+      <div style="position:relative;">
+        {% if f.is_image %}
+          <a href="{{ f.file.url }}" target="_blank"><img class="photo-thumb" src="{{ f.file.url }}"></a>
+        {% else %}
+          <a href="{{ f.file.url }}" target="_blank" class="badge badge-muted" style="display:block;padding:8px 10px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📎 {{ f.filename }}</a>
+        {% endif %}
+        <form method="post" action="{% url 'delete_store_log_file' f.id %}" style="position:absolute;top:-6px;right:-6px;">
+          {% csrf_token %}
+          <button type="submit" class="danger" style="padding:1px 6px;font-size:10px;">✕</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <details class="task-details">
+    <summary>Изменить текст / добавить файл</summary>
+    <form method="post" action="{% url 'edit_store_log' l.id %}" style="margin-bottom:8px;">
+      {% csrf_token %}
+      <textarea name="text" rows="3">{{ l.text }}</textarea>
+      <button type="submit" class="secondary" style="margin-top:6px;">Сохранить текст</button>
+    </form>
+    <form method="post" action="{% url 'add_store_log_file' l.id %}" enctype="multipart/form-data" class="row">
+      {% csrf_token %}
+      <input type="file" name="files" multiple style="flex:1;min-width:180px;">
+      <button type="submit" class="secondary">+ Файл</button>
+    </form>
+  </details>
+</div>
+{% empty %}
+<p class="muted">Записей пока нет.</p>
+{% endfor %}
+
+<div class="row" style="justify-content:space-between;align-items:center;margin:22px 0 10px;">
+  <h2 style="margin:0;">🧾 Отчёт</h2>
+  {% if report %}<span class="muted">обновлён {{ report.created_at|date:"d.m.Y H:i" }}</span>{% endif %}
+</div>
+
+{% if not report %}
+<div class="card">
+  <p class="muted" style="margin-top:0;">Отчёта пока нет. Соберите его из записей журнала выше — текст можно будет свободно отредактировать.</p>
+  <form method="post" action="{% url 'collect_report' store.id %}">
+    {% csrf_token %}
+    <button type="submit" class="accent">🧩 Собрать отчёт из журнала</button>
+  </form>
+</div>
+{% else %}
+<div class="card" id="report-{{ report.id }}">
+  <form method="post" action="{% url 'save_report' report.id %}">
+    {% csrf_token %}
+    <div class="field">
+      <label>Текст отчёта</label>
+      <textarea name="final_text" rows="10">{{ report.final_text }}</textarea>
+    </div>
+    <div class="row">
+      <button type="submit" class="accent">💾 Сохранить</button>
+    </div>
+  </form>
+
+  <form method="post" action="{% url 'collect_report' store.id %}" onsubmit="return confirm('Пересобрать текст заново из журнала? Текущий текст отчёта будет заменён — если в нём есть ручные правки, они потеряются.')" style="margin-top:10px;">
+    {% csrf_token %}
+    <button type="submit" class="secondary">🔄 Пересобрать из журнала заново</button>
+  </form>
+
+  <div class="row" style="margin-top:14px;">
+    {% for p in report.photos.all %}
+      <div style="position:relative;">
+        {% if p.is_image %}
+          <img class="photo-thumb" src="{{ p.file.url }}">
+        {% else %}
+          <a href="{{ p.file.url }}" target="_blank" class="badge badge-muted" style="display:block;padding:8px 10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📎 {{ p.filename }}</a>
+        {% endif %}
+        <form method="post" action="{% url 'delete_photo' p.id %}" style="position:absolute;top:-6px;right:-6px;">
+          {% csrf_token %}
+          <button type="submit" class="danger" style="padding:2px 6px;font-size:11px;">✕</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+  <form method="post" action="{% url 'add_photo' report.id %}" enctype="multipart/form-data" class="row" style="margin-top:8px;">
+    {% csrf_token %}
+    <input type="file" name="photos" multiple style="flex:1;min-width:180px;">
+    <button type="submit" class="secondary">+ Файл к отчёту</button>
+  </form>
+</div>
+{% endif %}
+
+</div>
+
+<!-- ===================== ТЕХДАННЫЕ ===================== -->
+<div class="tabpanel" id="tab-tech">
+
+<details class="card group-details" open id="router-config">
+  <summary>🔧 Конфиг роутера</summary>
+  <div style="margin-top:10px;">
+    {% if router_placeholders %}
+    <form method="post" id="router-config-form">
+      {% csrf_token %}
+      {% for f in router_placeholders %}
+      <div class="field">
+        <label>{{ f.label }}</label>
+        <input type="text" name="{{ f.key }}" id="router-field-{{ f.key }}" value="{{ f.value }}" autocomplete="off">
+        {% if f.hint %}<small class="muted">{{ f.hint }}</small>{% endif %}
+      </div>
+      {% endfor %}
+      <div class="row">
+        <button type="submit" formaction="{% url 'save_router_config' store.id %}" class="secondary">💾 Сохранить</button>
+        <button type="submit" formaction="{% url 'download_router_config' store.id %}" class="accent">⬇️ Скачать конфиг</button>
+      </div>
+    </form>
+    <p class="muted" style="margin-top:10px;margin-bottom:0;"><a class="plain" href="{% url 'router_config_template' %}">изменить шаблон конфига →</a></p>
+    <script>
+    (function() {
+      var lanip = document.getElementById('router-field-LANIP');
+      var dhcpStart = document.getElementById('router-field-DHCPSTART');
+      var dhcpEnd = document.getElementById('router-field-DHCPEND');
+      if (!lanip || !dhcpStart || !dhcpEnd) return;
+      lanip.addEventListener('input', function() {
+        var parts = lanip.value.trim().split('.');
+        if (parts.length !== 4) return;
+        var base = parts.slice(0, 3).join('.');
+        var last = parts[3];
+        if (last === '1') {
+          dhcpStart.value = base + '.64';
+          dhcpEnd.value = base + '.95';
+        } else if (last === '129') {
+          dhcpStart.value = base + '.192';
+          dhcpEnd.value = base + '.233';
+        }
+      });
+    })();
+    </script>
+    {% else %}
+    <p class="muted" style="margin:0;">Шаблон конфига пока пуст. <a class="plain" href="{% url 'router_config_template' %}">Вставьте текст шаблона →</a></p>
+    {% endif %}
+  </div>
+</details>
+
+<details class="card group-details" style="margin-top:12px;" id="device-ips">
+  <summary>📶 IP-адреса устройств</summary>
+  <div style="margin-top:10px;">
+    <form method="post" id="device-ips-form">
+      {% csrf_token %}
+      {% for f in device_ip_fields %}
+      <div class="field">
+        <label>{{ f.label }}</label>
+        <input type="text" name="{{ f.key }}" id="device-field-{{ f.key }}" value="{{ f.value }}" autocomplete="off">
+      </div>
+      {% endfor %}
+      <div class="row">
+        <button type="submit" formaction="{% url 'recalc_device_ips' store.id %}" class="secondary">🔄 Рассчитать</button>
+        <button type="submit" formaction="{% url 'save_device_ips' store.id %}" class="accent">💾 Сохранить</button>
+      </div>
+    </form>
+    {% if not has_network %}
+    <p class="muted" style="margin-top:10px;margin-bottom:0;">Чтобы расчёт сработал, сначала заполните и сохраните NETWORK в блоке «Конфиг роутера» выше.</p>
+    {% endif %}
+  </div>
+</details>
+
+</div>
+
+<!-- ===================== ПРОБЛЕМЫ ===================== -->
+<div class="tabpanel" id="tab-problems">
+  <div class="card">
+    {% for p in problems %}
+    <div class="row" style="justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div style="flex:1;min-width:0;">
+        <div class="muted" style="font-size:11px;">{{ p.created_at|date:"d.m.Y" }}{% if p.is_resolved %} · решено {{ p.resolved_at|date:"d.m.Y" }}{% endif %}</div>
+        <div style="{% if p.is_resolved %}text-decoration:line-through;color:var(--muted);{% endif %}">{{ p.text }}</div>
+      </div>
+      <div class="row" style="gap:4px;flex-shrink:0;">
+        <form method="post" action="{% url 'toggle_problem' p.id %}">
+          {% csrf_token %}
+          <button type="submit" class="secondary" style="padding:2px 8px;font-size:11px;" title="{% if p.is_resolved %}Вернуть в нерешённые{% else %}Отметить решённой{% endif %}">{% if p.is_resolved %}↺{% else %}✓{% endif %}</button>
+        </form>
+        <form method="post" action="{% url 'delete_problem' p.id %}" onsubmit="return confirm('Удалить проблему?')">
+          {% csrf_token %}
+          <button type="submit" class="danger" style="padding:2px 8px;font-size:11px;">✕</button>
+        </form>
+      </div>
+    </div>
+    {% empty %}
+      <p class="muted">Проблем не отмечено.</p>
+    {% endfor %}
+    <form method="post" action="{% url 'add_problem' store.id %}" style="margin-top:8px;">
+      {% csrf_token %}
+      <textarea name="text" rows="2" placeholder="Например: подрядчик не приехал, нет доступа..." required></textarea>
+      <button type="submit" class="accent" style="margin-top:6px;">+ Проблема</button>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== ЧЕК-ЛИСТ ===================== -->
+<div class="tabpanel" id="tab-checklist">
+  <div class="row" style="justify-content:flex-end;">
+    <span class="muted" id="checklist-progress"></span>
+  </div>
+  <div class="card">
+    {% if checklist_items %}
+      {% regroup checklist_items by category as checklist_groups %}
+      {% for group in checklist_groups %}
+        {% if group.grouper %}
+        <details class="group-details checklist-group" open style="{% if not forloop.first %}margin-top:10px;padding-top:10px;border-top:1px solid var(--border);{% endif %}">
+          <summary>{{ group.grouper }} <span class="muted checklist-group-count"></span></summary>
+          <div style="margin-top:6px;">
+          {% for item in group.list %}
+          <div class="row checklist-row" data-checked="{% if item.is_checked %}1{% else %}0{% endif %}" style="justify-content:space-between;padding:4px 0;">
+            <form method="post" action="{% url 'toggle_checklist_item' item.id %}" style="flex:1;">
+              {% csrf_token %}
+              <button type="submit" class="secondary" style="border:none;background:none;padding:0;text-align:left;width:100%;{% if item.is_checked %}text-decoration:line-through;color:var(--muted);{% endif %}">
+                {% if item.is_checked %}☑{% else %}☐{% endif %} {{ item.text }}
+              </button>
+            </form>
+            <form method="post" action="{% url 'delete_checklist_item' item.id %}">
+              {% csrf_token %}
+              <button type="submit" class="secondary" style="padding:1px 7px;font-size:11px;">✕</button>
+            </form>
+          </div>
+          {% endfor %}
+          </div>
+        </details>
+        {% endif %}
+      {% endfor %}
+      {% for group in checklist_groups %}
+        {% if not group.grouper %}
+        <details class="group-details checklist-group" open style="{% if checklist_groups|length > 1 %}margin-top:10px;padding-top:10px;border-top:1px solid var(--border);{% endif %}">
+          <summary>{% if checklist_groups|length > 1 %}Без раздела{% else %}Пункты{% endif %} <span class="muted checklist-group-count"></span></summary>
+          <div style="margin-top:6px;">
+          {% for item in group.list %}
+          <div class="row checklist-row" data-checked="{% if item.is_checked %}1{% else %}0{% endif %}" style="justify-content:space-between;padding:4px 0;">
+            <form method="post" action="{% url 'toggle_checklist_item' item.id %}" style="flex:1;">
+              {% csrf_token %}
+              <button type="submit" class="secondary" style="border:none;background:none;padding:0;text-align:left;width:100%;{% if item.is_checked %}text-decoration:line-through;color:var(--muted);{% endif %}">
+                {% if item.is_checked %}☑{% else %}☐{% endif %} {{ item.text }}
+              </button>
+            </form>
+            <form method="post" action="{% url 'delete_checklist_item' item.id %}">
+              {% csrf_token %}
+              <button type="submit" class="secondary" style="padding:1px 7px;font-size:11px;">✕</button>
+            </form>
+          </div>
+          {% endfor %}
+          </div>
+        </details>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="muted">Пунктов пока нет.</p>
+      {% if store.store_type == "opening" %}
+      <form method="post" action="{% url 'fill_checklist_template' store.id %}">
+        {% csrf_token %}
+        <button type="submit" class="accent">📋 Заполнить по шаблону</button>
+      </form>
+      {% endif %}
+    {% endif %}
+    <form method="post" action="{% url 'add_checklist_item' store.id %}" class="row" style="margin-top:8px;">
+      {% csrf_token %}
+      <input name="text" placeholder="Новый пункт..." style="flex:1;">
+      <button type="submit" class="secondary">+</button>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== КОНТАКТЫ ===================== -->
+<div class="tabpanel" id="tab-contacts">
+  {% for c in contacts %}
+  <div class="contact-card">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div class="name">{{ c.name }}</div>
+        {% if c.role %}<div class="muted">{{ c.role }}</div>{% endif %}
+      </div>
+      <form method="post" action="{% url 'delete_contact' c.id %}" onsubmit="return confirm('Удалить контакт?')">
+        {% csrf_token %}
+        <button type="submit" class="secondary" style="padding:2px 8px;font-size:11px;">✕</button>
+      </form>
+    </div>
+    {% if c.phone %}<div class="muted" style="margin-top:4px;">📞 {{ c.phone }}</div>{% endif %}
+    <div class="row" style="margin-top:8px;">
+      {% if c.telegram %}<a class="btn telegram" href="{{ c.telegram_url }}" target="_blank" style="font-size:12px;padding:6px 10px;">✈️ Telegram</a>{% endif %}
+      {% if c.max_contact %}<a class="btn maxbtn" href="{{ c.max_url }}" target="_blank" style="font-size:12px;padding:6px 10px;">💬 MAX</a>{% endif %}
+    </div>
+  </div>
+  {% empty %}
+    <p class="muted">Контактов пока нет.</p>
+  {% endfor %}
+
+  <div class="card">
+    <form method="post" action="{% url 'add_contact' store.id %}">
+      {% csrf_token %}
+      <div class="field"><label>Имя</label><input name="name" required></div>
+      <div class="field"><label>Роль / компания</label><input name="role"></div>
+      <div class="field"><label>Телефон</label><input name="phone"></div>
+      <div class="field"><label>Telegram (без @)</label><input name="telegram"></div>
+      <div class="field"><label>MAX (username)</label><input name="max_contact"></div>
+      <button type="submit" class="accent">+ Добавить контакт</button>
+    </form>
+  </div>
+</div>
+
+<script>
+function showStoreTab(id) {
+  document.querySelectorAll('.tabpanel').forEach(function(el) {
+    el.classList.toggle('active', el.id === 'tab-' + id);
+  });
+  document.querySelectorAll('.tabpanel-btn').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.tab === id);
+  });
+}
+
+// Запоминаем, какая вкладка была активна, перед отправкой любой формы на
+// странице — чтобы после редиректа (views.py всегда шлёт на store_detail
+// без параметра вкладки) вернуться туда же, а не на вкладку «Задачи» по
+// умолчанию. Ключ привязан к id магазина, чтобы вкладки разных магазинов
+// не путались между вкладками браузера.
+var STORE_TAB_KEY = 'storeDetailActiveTab_{{ store.id }}';
+document.addEventListener('submit', function(e) {
+  var activeBtn = document.querySelector('.tabpanel-btn.active');
+  if (activeBtn) {
+    try { sessionStorage.setItem(STORE_TAB_KEY, activeBtn.dataset.tab); } catch (err) {}
+  }
+});
+
+// После загрузки страницы, если в адресе нет якоря (#task-5 и т.п. —
+// это обрабатывается отдельным скриптом ниже и имеет приоритет),
+// восстанавливаем вкладку, сохранённую перед последней отправленной формой.
+document.addEventListener('DOMContentLoaded', function() {
+  if (location.hash) return;
+  var saved;
+  try { saved = sessionStorage.getItem(STORE_TAB_KEY); } catch (err) { saved = null; }
+  if (saved) showStoreTab(saved);
+});
+
+function setTasksView(mode) {
+  const el = document.getElementById('tasks-list');
+  el.classList.remove('list-view', 'tile-view');
+  el.classList.add(mode + '-view');
+  localStorage.setItem('tasksView', mode);
+  document.getElementById('view-list-btn').classList.toggle('accent', mode === 'list');
+  document.getElementById('view-tile-btn').classList.toggle('accent', mode === 'tile');
+}
+(function() {
+  const saved = localStorage.getItem('tasksView') || 'list';
+  document.addEventListener('DOMContentLoaded', function() { setTasksView(saved); });
+})();
+
+document.addEventListener('DOMContentLoaded', function() {
+  const rows = document.querySelectorAll('.checklist-row');
+  const el = document.getElementById('checklist-progress');
+  if (el && rows.length) {
+    let done = 0;
+    rows.forEach(function(r) { if (r.getAttribute('data-checked') === '1') done++; });
+    el.textContent = done + ' / ' + rows.length + ' выполнено';
+  }
+  document.querySelectorAll('.checklist-group').forEach(function(g) {
+    const groupRows = g.querySelectorAll('.checklist-row');
+    let groupDone = 0;
+    groupRows.forEach(function(r) { if (r.getAttribute('data-checked') === '1') groupDone++; });
+    const countEl = g.querySelector('.checklist-group-count');
+    if (countEl) countEl.textContent = '· ' + groupDone + '/' + groupRows.length;
+  });
+});
+
+// Если пришли по ссылке с якорем (#task-5, #router-config...) — переключить нужную
+// вкладку и открыть все вложенные <details>, иначе элемент останется скрытым.
+document.addEventListener('DOMContentLoaded', function() {
+  if (!location.hash) return;
+  let target;
+  try { target = document.querySelector(location.hash); } catch (e) { return; }
+  if (!target) return;
+  const panel = target.closest('.tabpanel');
+  if (panel) showStoreTab(panel.id.replace('tab-', ''));
+  let d = target.closest('details');
+  while (d) {
+    d.open = true;
+    d = d.parentElement ? d.parentElement.closest('details') : null;
+  }
+  setTimeout(function() { target.scrollIntoView(); }, 50);
+});
+</script>
+{% endblock %}

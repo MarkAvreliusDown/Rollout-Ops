@@ -1,0 +1,79 @@
+{% extends "board/base.html" %}
+{% block title %}Реконструкции{% endblock %}
+{% block content %}
+<h1>Реконструкции — учёт премий</h1>
+<p class="muted">Чтобы не забыть, что и когда должны были выплатить.</p>
+
+<h2>Добавить запись</h2>
+<form method="post" action="{% url 'add_reconstruction' %}" enctype="multipart/form-data" class="card">
+  {% csrf_token %}
+  <div class="row">
+    <select name="branch" style="flex:1;">
+      <option value="">Филиал</option>
+      {% for code, label in branches %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+    </select>
+    <input name="store_number" placeholder="№ объекта" required style="flex:1;">
+    <input type="date" name="reconstruction_date" style="flex:1;">
+    <input type="number" name="expected_amount" placeholder="Ожидаемая премия, ₽" style="flex:1;">
+  </div>
+  <div class="field" style="margin-top:8px;">
+    <textarea name="notes" rows="2" placeholder="Заметки (необязательно)"></textarea>
+  </div>
+  <div class="field">
+    <label>Документы (необязательно, можно добавить и позже)</label>
+    <input type="file" name="files" multiple>
+  </div>
+  <button type="submit" class="accent">+ Добавить</button>
+</form>
+
+{% for r in records %}
+<div class="card">
+  <div class="row" style="justify-content:space-between;">
+    <div>
+      <strong>{{ r.store_number }}</strong>
+      {% if r.branch %} · {{ r.get_branch_display }}{% endif %}
+      {% if r.reconstruction_date %} · реконструкция {{ r.reconstruction_date|date:"d.m.Y" }}{% endif %}
+    </div>
+    {% if r.paid %}
+      <span class="badge badge-ok">выплачено {% if r.paid_date %}{{ r.paid_date|date:"d.m.Y" }}{% endif %}</span>
+    {% else %}
+      <span class="badge badge-warn">не выплачено</span>
+    {% endif %}
+  </div>
+  {% if r.expected_amount %}<p class="muted">Ожидаемая сумма: {{ r.expected_amount }} ₽</p>{% endif %}
+  {% if r.notes %}<p style="white-space:pre-wrap;">{{ r.notes }}</p>{% endif %}
+
+  <div class="row">
+    {% for d in r.documents.all %}
+      <span class="badge badge-muted">
+        <a class="plain" href="{{ d.file.url }}" target="_blank">📎 {{ d.filename }}</a>
+        <form method="post" action="{% url 'delete_reconstruction_doc' d.id %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="danger" style="padding:1px 6px;font-size:10px;">✕</button>
+        </form>
+      </span>
+    {% endfor %}
+  </div>
+
+  <div class="row" style="margin-top:8px;">
+    <form method="post" action="{% url 'add_reconstruction_doc' r.id %}" enctype="multipart/form-data" class="row" style="flex:1;">
+      {% csrf_token %}
+      <input type="file" name="files" multiple style="flex:1;">
+      <button type="submit" class="secondary">+ Документ</button>
+    </form>
+    <form method="post" action="{% url 'toggle_reconstruction_paid' r.id %}">
+      {% csrf_token %}
+      <button type="submit" class="{% if r.paid %}secondary{% else %}accent{% endif %}">
+        {% if r.paid %}Отметить как невыплачено{% else %}✓ Отметить как выплачено{% endif %}
+      </button>
+    </form>
+    <form method="post" action="{% url 'delete_reconstruction' r.id %}" onsubmit="return confirm('Удалить запись?')">
+      {% csrf_token %}
+      <button type="submit" class="danger">Удалить</button>
+    </form>
+  </div>
+</div>
+{% empty %}
+<p class="muted">Записей пока нет.</p>
+{% endfor %}
+{% endblock %}

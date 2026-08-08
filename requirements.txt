@@ -1,0 +1,7 @@
+Django>=5.0,<6.0
+Pillow
+python-dotenv
+requests
+python-docx
+beautifulsoup4
+pypdf

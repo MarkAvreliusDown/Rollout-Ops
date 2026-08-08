@@ -1,0 +1,21 @@
+{% extends "board/base.html" %}
+{% block title %}Импорт статьи{% endblock %}
+{% block content %}
+<p class="muted"><a class="plain" href="{% if category_id %}{% url 'kb_category_detail' category_id %}{% else %}{% url 'kb_list' %}{% endif %}">← База знаний</a></p>
+<h1>Импорт из Word / PDF</h1>
+<p class="muted">Текст, заголовки, списки, таблицы перенесутся автоматически. Картинки — только из .docx (в PDF картинки не переносятся, можно будет добавить руками после импорта).</p>
+
+{% if error %}
+<div class="card" style="border-color:var(--danger);color:var(--danger);">{{ error }}</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="card">
+  {% csrf_token %}
+  <input type="hidden" name="category_id" value="{{ category_id|default:'' }}">
+  <div class="field">
+    <label>Файл (.docx или .pdf)</label>
+    <input type="file" name="file" accept=".docx,.pdf" required>
+  </div>
+  <button type="submit" class="accent">Импортировать</button>
+</form>
+{% endblock %}

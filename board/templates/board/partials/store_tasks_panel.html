@@ -1,0 +1,32 @@
+{% load board_extras %}
+<div class="panel-store-header">
+  <div>
+    <div class="panel-store-title">{{ store.get_branch_display }} · №{{ store.number }}</div>
+    <div class="muted" style="font-size:12.5px;">{{ store.get_store_type_display }}{% if store.address %} · {{ store.address }}{% endif %}</div>
+  </div>
+  <a class="plain badge badge-muted" href="{% url 'store_detail' store.id %}">Открыть карточку целиком →</a>
+</div>
+
+{% if not tasks %}
+  <p class="muted" style="padding:12px 0;">Задач пока нет.</p>
+{% endif %}
+
+{% for t in tasks %}
+<div class="panel-task-row {% if t.status == 'done' %}panel-task-row-done{% endif %}">
+  <div class="panel-task-top">
+    {% task_icon_badge t %}
+    <span class="panel-task-title">{{ t.title }}</span>
+  </div>
+  <div class="panel-task-meta">
+    <select class="panel-task-status" data-task-id="{{ t.id }}" onchange="panelUpdateTaskStatus(this)">
+      <option value="progress" {% if t.status == "progress" %}selected{% endif %}>В работе</option>
+      <option value="waiting" {% if t.status == "waiting" %}selected{% endif %}>Ждём подрядчика</option>
+      <option value="done" {% if t.status == "done" %}selected{% endif %}>Готово</option>
+    </select>
+    {% if t.due_date %}
+      <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
+    {% endif %}
+    {% if t.anchor_key %}<span class="badge badge-warn">⚓ опорная дата</span>{% endif %}
+  </div>
+</div>
+{% endfor %}

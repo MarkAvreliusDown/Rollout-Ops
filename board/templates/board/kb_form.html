@@ -1,0 +1,480 @@
+{% extends "board/base.html" %}
+{% block title %}Редактирование{% endblock %}
+{% block content %}
+<p class="muted"><a class="plain" href="{% url 'kb_detail' article.id %}">← Назад к статье</a></p>
+<h1>Редактирование статьи</h1>
+
+<form method="post" id="kb-form">
+  {% csrf_token %}
+
+  <div id="kb-sticky-bar" style="position:sticky; top:0; z-index:5; background:var(--panel); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); padding-top:6px; padding-bottom:10px; border-bottom:1px solid var(--border); margin-bottom:14px;">
+    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <input name="title" id="kb-title" value="{{ article.title }}" required style="flex:1; margin-right:10px; font-size:16px; font-weight:600;">
+      <select name="category_id" style="width:auto; margin-right:10px;">
+        <option value="">Без категории</option>
+        {% for c in categories %}
+        <option value="{{ c.id }}" {% if article.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="accent">💾 Сохранить</button>
+    </div>
+    <div class="row" style="gap:4px;">
+      <select onchange="document.execCommand('formatBlock', false, this.value); this.selectedIndex=0;" style="width:auto;">
+        <option value="">Абзац ▾</option>
+        <option value="P">Обычный текст</option>
+        <option value="H2">Заголовок 1</option>
+        <option value="H3">Заголовок 2</option>
+        <option value="H4">Заголовок 3</option>
+      </select>
+      <select onchange="setFontSize(this.value); this.selectedIndex=0;" style="width:auto;">
+        <option value="">Размер шрифта ▾</option>
+        <option value="1">Очень мелкий</option>
+        <option value="2">Мелкий</option>
+        <option value="3">Обычный</option>
+        <option value="4">Крупный</option>
+        <option value="5">Больше</option>
+        <option value="6">Огромный</option>
+        <option value="7">Максимальный</option>
+      </select>
+      <button type="button" class="secondary" onclick="document.execCommand('bold')"><b>Ж</b></button>
+      <button type="button" class="secondary" onclick="document.execCommand('italic')"><i>К</i></button>
+      <button type="button" class="secondary" onclick="document.execCommand('underline')"><u>Ч</u></button>
+      <button type="button" class="secondary" onclick="document.execCommand('insertUnorderedList')">☰ Список</button>
+      <button type="button" class="secondary" onclick="document.execCommand('insertOrderedList')">1. Список</button>
+      <button type="button" class="secondary" onclick="insertChecklist()">☑ Чек-лист</button>
+      <button type="button" class="secondary" onclick="document.execCommand('outdent')">⇤</button>
+      <button type="button" class="secondary" onclick="document.execCommand('indent')">⇥</button>
+      <button type="button" class="secondary" onclick="document.execCommand('justifyLeft')">⯇</button>
+      <button type="button" class="secondary" onclick="document.execCommand('justifyCenter')">≡</button>
+      <button type="button" class="secondary" onclick="document.execCommand('justifyRight')">⯈</button>
+      <button type="button" class="secondary" onclick="insertLink()">🔗 Ссылка</button>
+      <button type="button" class="secondary" onclick="insertTable()">▦ Таблица</button>
+      <button type="button" class="secondary" onclick="insertImage()">🖼 Картинка</button>
+      <span id="kb-upload-status" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="field" style="position:relative;">
+    <div id="kb-editor" contenteditable="true"
+         style="position:relative; min-height:300px; border:1px solid var(--border); border-radius:5px; padding:12px; background:var(--card); color:var(--text); line-height:1.6; overflow-x:auto;">
+      {{ article.content|safe }}
+    </div>
+    <div id="kb-col-resize-line" style="position:absolute; width:2px; background:var(--accent); display:none; z-index:20; pointer-events:none;"></div>
+    <input type="hidden" name="content" id="kb-content-hidden">
+  </div>
+
+  <button type="submit" class="accent">💾 Сохранить</button>
+</form>
+
+<input type="file" id="kb-image-input" accept="image/*" style="display:none;">
+
+<script>
+const editor = document.getElementById('kb-editor');
+let savedRange = null;
+
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+function saveSelection() {
+  const sel = window.getSelection();
+  if (sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+    savedRange = sel.getRangeAt(0).cloneRange();
+  }
+}
+editor.addEventListener('mouseup', saveSelection);
+editor.addEventListener('keyup', saveSelection);
+editor.addEventListener('paste', handlePaste);
+
+function handlePaste(event) {
+  event.preventDefault();
+  try {
+    const html = event.clipboardData.getData('text/html');
+    if (html && html.trim()) {
+      const cleaned = sanitizePastedHtml(html);
+      if (cleaned && cleaned.trim()) {
+        editor.focus();
+        document.execCommand('insertHTML', false, cleaned);
+        return;
+      }
+    }
+  } catch (err) {
+    pasteAsPlainText(event);
+    return;
+  }
+  pasteAsPlainText(event);
+}
+
+function pasteAsPlainText(event) {
+  const text = event.clipboardData.getData('text/plain') || '';
+  if (!text) return;
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  editor.focus();
+  document.execCommand('insertHTML', false, escaped);
+}
+
+function insertImage() {
+  document.getElementById('kb-image-input').click();
+}
+
+function insertLink() {
+  const url = prompt('Ссылка (полный адрес, начиная с http):');
+  if (url) document.execCommand('createLink', false, url);
+}
+
+function insertTable() {
+  const rows = parseInt(prompt('Сколько строк?', '3'), 10) || 3;
+  const cols = parseInt(prompt('Сколько столбцов?', '3'), 10) || 3;
+  const DEFAULT_COL_WIDTH = 120;
+  let html = '<table style="border-collapse:collapse;table-layout:fixed;">';
+  html += '<colgroup>';
+  for (let c = 0; c < cols; c++) {
+    html += '<col style="width:' + DEFAULT_COL_WIDTH + 'px;">';
+  }
+  html += '</colgroup>';
+  for (let r = 0; r < rows; r++) {
+    html += '<tr>';
+    for (let c = 0; c < cols; c++) {
+      html += '<td style="border:1px solid #999;padding:6px;word-wrap:break-word;">&nbsp;</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</table><p><br></p>';
+  editor.focus();
+  document.execCommand('insertHTML', false, html);
+}
+
+function insertChecklist() {
+  editor.focus();
+  document.execCommand('insertHTML', false, '<div><input type="checkbox"> Пункт задачи</div>');
+}
+
+const PASTE_ALLOWED_TAGS = ['TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH', 'P', 'BR', 'UL', 'OL', 'LI', 'B', 'STRONG', 'I', 'EM', 'U', 'A'];
+const PASTE_STRIP_ENTIRELY = ['SCRIPT', 'STYLE', 'META', 'LINK', 'IMG', 'IFRAME', 'OBJECT', 'EMBED', 'HEAD', 'TITLE', 'XML'];
+const PASTE_ALLOWED_ATTRS = {
+  TD: ['colspan', 'rowspan'],
+  TH: ['colspan', 'rowspan'],
+  A: ['href'],
+};
+
+function widthToPx(raw) {
+  if (!raw) return null;
+  const str = String(raw).trim();
+  const ptMatch = str.match(/^([\d.]+)\s*pt$/i);
+  if (ptMatch) return parseFloat(ptMatch[1]) * 96 / 72;
+  const pxMatch = str.match(/^([\d.]+)\s*px$/i);
+  if (pxMatch) return parseFloat(pxMatch[1]);
+  const bare = str.match(/^([\d.]+)$/);
+  if (bare) return parseFloat(bare[1]);
+  return null;
+}
+
+function extractColumnWidths(table) {
+  const colgroup = table.querySelector(':scope > colgroup');
+  if (colgroup) {
+    const cols = Array.from(colgroup.querySelectorAll('col'));
+    if (cols.length > 0) {
+      const widths = cols.map(function(col) {
+        return widthToPx(col.style.width) || widthToPx(col.getAttribute('width'));
+      });
+      if (widths.every(function(w) { return w !== null && w > 0; })) return widths;
+    }
+  }
+  const firstRow = table.querySelector('tr');
+  if (!firstRow) return null;
+  const cells = Array.from(firstRow.children).filter(function(c) {
+    return c.tagName === 'TD' || c.tagName === 'TH';
+  });
+  if (cells.length === 0) return null;
+  const widths = cells.map(function(cell) {
+    return widthToPx(cell.style.width) || widthToPx(cell.getAttribute('width'));
+  });
+  if (widths.every(function(w) { return w !== null && w > 0; })) return widths;
+  return null;
+}
+
+function sanitizePastedHtml(html) {
+  html = html.replace(/<!--[\s\S]*?-->/g, '').replace(/<xml[\s\S]*?<\/xml>/gi, '');
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+
+  const columnWidthsByTable = new Map();
+  container.querySelectorAll('table').forEach(function(t) {
+    columnWidthsByTable.set(t, extractColumnWidths(t));
+  });
+
+  function cleanNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) return;
+    if (node.nodeType === Node.COMMENT_NODE) {
+      node.remove();
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      node.remove();
+      return;
+    }
+    const tag = node.tagName;
+    if (PASTE_STRIP_ENTIRELY.includes(tag)) {
+      node.remove();
+      return;
+    }
+
+    Array.from(node.childNodes).forEach(cleanNode);
+
+    if (!PASTE_ALLOWED_TAGS.includes(tag)) {
+      while (node.firstChild) node.parentNode.insertBefore(node.firstChild, node);
+      node.remove();
+      return;
+    }
+
+    const allowedAttrs = PASTE_ALLOWED_ATTRS[tag] || [];
+    Array.from(node.attributes).forEach(function(attr) {
+      if (!allowedAttrs.includes(attr.name)) node.removeAttribute(attr.name);
+    });
+    if (tag === 'A') {
+      const href = node.getAttribute('href');
+      if (!href || !/^(https?:|mailto:)/i.test(href.trim())) node.removeAttribute('href');
+    }
+  }
+
+  Array.from(container.childNodes).forEach(cleanNode);
+
+  container.querySelectorAll('table').forEach(function(t) {
+    t.setAttribute('style', 'border-collapse:collapse;');
+    const widths = columnWidthsByTable.get(t);
+    if (widths && widths.length > 0) {
+      t.style.tableLayout = 'fixed';
+      const colgroup = document.createElement('colgroup');
+      widths.forEach(function(w) {
+        const col = document.createElement('col');
+        col.style.width = Math.max(MIN_COL_WIDTH, Math.round(w)) + 'px';
+        colgroup.appendChild(col);
+      });
+      t.insertBefore(colgroup, t.firstChild);
+    }
+  });
+  container.querySelectorAll('td, th').forEach(function(c) {
+    c.setAttribute('style', 'border:1px solid #999;padding:6px;word-wrap:break-word;');
+  });
+
+  return container.innerHTML;
+}
+
+const FONT_SIZE_PX = {1: '11px', 2: '13px', 3: '16px', 4: '19px', 5: '23px', 6: '28px', 7: '34px'};
+
+function setFontSize(value) {
+  editor.focus();
+  const sel = window.getSelection();
+  if (sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) return;
+  let container = sel.getRangeAt(0).commonAncestorContainer;
+  if (container.nodeType !== 1) container = container.parentElement;
+  document.execCommand('fontSize', false, '7');
+  container.querySelectorAll('font[size="7"]').forEach(function(el) {
+    el.removeAttribute('size');
+    el.style.fontSize = FONT_SIZE_PX[value];
+  });
+}
+
+document.getElementById('kb-image-input').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('kb-upload-status');
+  statusEl.textContent = ' загружаю...';
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  try {
+    const res = await fetch('{% url "kb_upload_image" article.id %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') },
+      body: formData,
+    });
+    const data = await res.json();
+    if (data.error) {
+      statusEl.textContent = ' ошибка: ' + data.error;
+      return;
+    }
+    editor.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    if (savedRange) sel.addRange(savedRange);
+
+    const img = document.createElement('img');
+    img.src = data.url;
+    img.style.maxWidth = '100%';
+    img.style.display = 'block';
+    img.style.margin = '10px 0';
+
+    const range = sel.getRangeAt(0);
+    range.collapse(false);
+    range.insertNode(img);
+    range.setStartAfter(img);
+    range.setEndAfter(img);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    statusEl.textContent = ' готово';
+    setTimeout(() => statusEl.textContent = '', 1500);
+  } catch (err) {
+    statusEl.textContent = ' не удалось загрузить';
+  }
+  e.target.value = '';
+});
+
+document.getElementById('kb-form').addEventListener('submit', function() {
+  document.getElementById('kb-content-hidden').value = editor.innerHTML;
+});
+
+const colResizeLine = document.getElementById('kb-col-resize-line');
+const colResizeField = editor.parentElement;
+const COL_RESIZE_ZONE = 6;
+const MIN_COL_WIDTH = 30;
+let hoverResizeCell = null;
+let isResizingColumn = false;
+let resizeCol = null;
+let resizeTable = null;
+let resizeStartColWidth = 0;
+let resizeStartX = 0;
+
+function showColResizeLineAtX(clientX, table) {
+  const fieldRect = colResizeField.getBoundingClientRect();
+  const tableRect = table.getBoundingClientRect();
+  colResizeLine.style.top = (tableRect.top - fieldRect.top) + 'px';
+  colResizeLine.style.height = tableRect.height + 'px';
+  colResizeLine.style.left = (clientX - fieldRect.left) + 'px';
+  colResizeLine.style.display = 'block';
+}
+
+function hideColResizeLine() {
+  colResizeLine.style.display = 'none';
+}
+
+function buildColgroupFromNaturalSize(table) {
+  const prevTableLayout = table.style.tableLayout;
+  const prevWidth = table.style.width;
+  table.style.tableLayout = 'auto';
+  table.style.width = 'auto';
+  void table.offsetWidth; // форсируем пересчёт раскладки перед измерением
+
+  const firstRow = table.querySelector('tr');
+  if (!firstRow) {
+    table.style.tableLayout = prevTableLayout;
+    table.style.width = prevWidth;
+    return;
+  }
+  const cells = Array.from(firstRow.children).filter(function(c) {
+    return c.tagName === 'TD' || c.tagName === 'TH';
+  });
+  if (cells.length === 0) {
+    table.style.tableLayout = prevTableLayout;
+    table.style.width = prevWidth;
+    return;
+  }
+
+  const colgroup = document.createElement('colgroup');
+  cells.forEach(function(cell) {
+    const width = cell.getBoundingClientRect().width;
+    const col = document.createElement('col');
+    col.style.width = Math.max(MIN_COL_WIDTH, Math.round(width)) + 'px';
+    colgroup.appendChild(col);
+    cell.style.width = '';
+  });
+  table.insertBefore(colgroup, table.firstChild);
+  table.style.tableLayout = 'fixed';
+  table.style.width = 'auto';
+}
+
+function ensureColgroup(table) {
+  const existing = table.querySelector(':scope > colgroup');
+  if (existing) {
+    table.style.tableLayout = 'fixed';
+    return;
+  }
+  buildColgroupFromNaturalSize(table);
+}
+
+editor.addEventListener('mousemove', function(event) {
+  if (isResizingColumn) return;
+  const cell = event.target.closest('td, th');
+  if (cell && editor.contains(cell)) {
+    const rect = cell.getBoundingClientRect();
+    const distance = rect.right - event.clientX;
+    if (distance >= -COL_RESIZE_ZONE && distance <= COL_RESIZE_ZONE) {
+      hoverResizeCell = cell;
+      cell.style.cursor = 'col-resize';
+      showColResizeLineAtX(rect.right, cell.closest('table'));
+      return;
+    }
+  }
+  if (hoverResizeCell) {
+    hoverResizeCell.style.cursor = '';
+    hoverResizeCell = null;
+  }
+  hideColResizeLine();
+});
+
+editor.addEventListener('mousedown', function(event) {
+  if (!hoverResizeCell) return;
+  event.preventDefault();
+  const cell = hoverResizeCell;
+  const table = cell.closest('table');
+  const colIndex = Array.from(cell.parentElement.children).indexOf(cell);
+  ensureColgroup(table);
+  const cols = table.querySelectorAll(':scope > colgroup > col');
+  resizeCol = cols[colIndex] || null;
+  resizeTable = table;
+  resizeStartColWidth = cell.getBoundingClientRect().width;
+  resizeStartX = event.clientX;
+  isResizingColumn = true;
+  document.addEventListener('mousemove', onColumnResizeMove);
+  document.addEventListener('mouseup', onColumnResizeEnd);
+});
+
+function onColumnResizeMove(event) {
+  if (!resizeCol) return;
+  const delta = event.clientX - resizeStartX;
+  const newWidth = Math.max(MIN_COL_WIDTH, resizeStartColWidth + delta);
+  resizeCol.style.width = newWidth + 'px';
+  if (resizeTable) showColResizeLineAtX(event.clientX, resizeTable);
+}
+
+function onColumnResizeEnd() {
+  document.removeEventListener('mousemove', onColumnResizeMove);
+  document.removeEventListener('mouseup', onColumnResizeEnd);
+  isResizingColumn = false;
+  if (hoverResizeCell) {
+    hoverResizeCell.style.cursor = '';
+  }
+  hoverResizeCell = null;
+  resizeCol = null;
+  resizeTable = null;
+  hideColResizeLine();
+}
+
+editor.addEventListener('mouseleave', function() {
+  if (isResizingColumn) return;
+  if (hoverResizeCell) {
+    hoverResizeCell.style.cursor = '';
+    hoverResizeCell = null;
+  }
+  hideColResizeLine();
+});
+
+// Старые таблицы (сохранённые до внедрения colgroup) при открытии статьи
+// сразу возвращаем к естественному размеру по содержимому, а не оставляем
+// растянутыми на всю ширину.
+editor.querySelectorAll('table').forEach(function(table) {
+  if (!table.querySelector(':scope > colgroup')) {
+    buildColgroupFromNaturalSize(table);
+  }
+});
+</script>
+{% endblock %}

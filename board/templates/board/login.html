@@ -1,0 +1,80 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход — Rollout Ops</title>
+<link rel="icon" type="image/svg+xml" href="{% static 'board/favicon.svg' %}">
+<script>
+  (function() {
+    const saved = localStorage.getItem('theme');
+    const theme = (saved === 'dark' || saved === 'glass') ? saved : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
+<style>
+  :root {
+    --bg: #F5F4FA; --card: #FFFFFF; --border: #E4E1F2; --text: #211D34;
+    --muted: #8D89A6; --accent: #6C5CE7; --danger: #E5484D;
+  }
+  html[data-theme="dark"] {
+    --bg: #15131F; --card: #1A1826; --border: #322E45; --text: #EEECF7;
+    --muted: #9591AE; --accent: #8B7CFF; --danger: #EB6266;
+  }
+  html[data-theme="glass"] {
+    --bg: #14121f; --card: rgba(255,255,255,0.08); --border: rgba(255,255,255,0.16);
+    --text: #F2F1F7; --muted: #C7C3DE; --accent: #8D7CFF; --danger: #F16A6E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: var(--text);
+    background:
+      radial-gradient(ellipse 80% 55% at 10% -10%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 55%),
+      var(--bg);
+  }
+  html[data-theme="glass"] body {
+    background:
+      radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--accent) 55%, transparent) 0%, transparent 45%),
+      radial-gradient(circle at 85% 10%, color-mix(in srgb, var(--danger) 40%, transparent) 0%, transparent 45%),
+      linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f1524 100%);
+  }
+  .login-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px 28px; width: 100%; max-width: 320px; box-shadow: 0 4px 24px rgba(20,10,50,0.08);
+  }
+  html[data-theme="glass"] .login-card {
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.14);
+  }
+  .brand { font-weight: 800; font-size: 18px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  html[data-theme="glass"] .brand,
+  html[data-theme="glass"] .muted { text-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+  input {
+    width: 100%; padding: 11px 13px; border: 1px solid var(--border); border-radius: 9px;
+    font-size: 15px; background: var(--bg); color: var(--text); margin-bottom: 12px;
+  }
+  button {
+    width: 100%; padding: 11px; border: none; border-radius: 9px; font-weight: 600; font-size: 14px;
+    cursor: pointer; background: linear-gradient(135deg, var(--accent), #8E7CFF); color: #fff;
+  }
+  .error { color: var(--danger); font-size: 13px; margin: -4px 0 12px; }
+</style>
+</head>
+<body>
+  <div class="login-card">
+    <p class="brand">Rollout Ops</p>
+    <p class="muted">Введите пароль для входа</p>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <input type="password" name="password" placeholder="Пароль" autofocus required>
+      <button type="submit">Войти</button>
+    </form>
+  </div>
+</body>
+</html>

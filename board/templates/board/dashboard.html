@@ -1,0 +1,1103 @@
+
+{% extends "board/base.html" %}
+{% load board_extras %}
+{% block title %}Главная{% endblock %}
+{% block content %}
+
+<style>
+  /* KPI-метрики */
+  .kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; position: relative; z-index: 5; }
+  .kpi-card { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; min-width: 140px; flex: 1 1 150px; box-shadow: 0 1px 3px rgba(30,20,60,0.04); }
+  .kpi-value { font-size: 28px; font-weight: 800; line-height: 1.1; }
+  .kpi-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .kpi-card.has-tip { cursor: default; }
+  .kpi-card.has-tip:hover { z-index: 60; }
+  .kpi-tip { position: absolute; top: calc(100% + 8px); left: 0; z-index: 50; min-width: 240px; max-width: 320px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 26px rgba(20,14,40,0.22); opacity: 0; pointer-events: none; transform: translateY(-4px); transition: opacity .12s, transform .12s; }
+  .kpi-card.has-tip:hover .kpi-tip { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .kpi-tip-empty { font-size: 12.5px; color: var(--muted); }
+  .kpi-tip-item { display: block; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--text); text-decoration: none; }
+  .kpi-tip-item:last-child { border-bottom: none; }
+  .kpi-tip-item:hover { color: var(--accent); }
+  .kpi-tip-store { color: var(--muted); font-size: 11px; }
+  @media (max-width: 860px) {
+    .kpi-tip { left: auto; right: 0; }
+  }
+
+  /* Канбан-доска */
+  .kanban-board { display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 26px; align-items: flex-start; }
+  .kanban-col { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; flex: 1 1 270px; min-width: 270px; max-width: 340px; display: flex; flex-direction: column; gap: 10px; }
+  .kanban-col-header { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 2px 6px; }
+  .kanban-col-title { font-weight: 700; font-size: 13.5px; }
+  .kanban-col-count { font-size: 11.5px; font-family: monospace; color: var(--muted); background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; }
+  .kanban-col-body { display: flex; flex-direction: column; gap: 10px; min-height: 60px; border-radius: 10px; transition: background .12s, outline-color .12s; outline: 2px dashed transparent; outline-offset: -2px; }
+  .kanban-col-body.drag-over { background: color-mix(in srgb, var(--accent) 10%, transparent); outline-color: var(--accent); }
+  .kanban-empty { display: none; font-size: 12px; text-align: center; padding: 16px 4px; border: 1px dashed var(--border); border-radius: 10px; color: var(--muted); }
+  .kanban-col-body:not(:has(.kanban-card)):not(:has(.task-kanban-card)) .kanban-empty { display: block; }
+
+  .kanban-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 13px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; box-shadow: 0 1px 2px rgba(30,20,60,0.03); }
+  .kanban-card:active { cursor: grabbing; }
+  .kanban-card.dragging { opacity: .35; }
+  .kanban-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .kanban-card-title { font-weight: 700; font-size: 13.5px; color: var(--text); text-decoration: none; }
+  .kanban-card-title:hover { color: var(--accent); }
+  .kanban-progress { height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; margin-bottom: 4px; }
+  .kanban-progress-bar { height: 100%; border-radius: 4px; }
+  .kanban-progress-label { font-size: 11px; margin-bottom: 6px; }
+  .kanban-card-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+
+  .kanban-card-ghost { position: fixed; z-index: 500; pointer-events: none; opacity: .92; box-shadow: 0 10px 26px rgba(20,14,40,0.28); margin: 0; }
+
+  @media (max-width: 860px) {
+    .kanban-board { scroll-snap-type: x mandatory; }
+    .kanban-col { min-width: 68vw; max-width: 68vw; scroll-snap-align: center; }
+    .kanban-card { padding: 10px 11px; }
+    .kpi-row { gap: 8px; }
+    .kpi-card { min-width: 108px; padding: 12px 14px; flex-basis: 45%; }
+    .kpi-value { font-size: 22px; }
+  }
+
+  /* Боковая панель с задачами магазина (открывается кликом по карточке канбана) */
+  .side-panel-backdrop { position: fixed; inset: 0; background: rgba(20,14,40,0.35); z-index: 600; opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .side-panel-backdrop.open { opacity: 1; pointer-events: auto; }
+  .side-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 92vw; background: var(--bg); border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(20,14,40,0.18); z-index: 601; transform: translateX(100%); transition: transform .18s ease; display: flex; flex-direction: column; }
+  .side-panel.open { transform: translateX(0); }
+  .side-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+  .side-panel-header strong { font-size: 14px; }
+  .side-panel-close { background: none; border: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--muted); padding: 4px 8px; }
+  .side-panel-close:hover { color: var(--text); }
+  .side-panel-body { flex: 1; overflow-y: auto; padding: 6px 16px 16px; }
+
+  .panel-store-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 10px 0 12px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .panel-store-title { font-weight: 700; font-size: 14.5px; }
+  .panel-task-row { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .panel-task-row:last-child { border-bottom: none; }
+  .panel-task-row-done .panel-task-title { text-decoration: line-through; color: var(--muted); }
+  .panel-task-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .panel-task-title { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: break-word; }
+  .panel-task-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-left: 42px; }
+  .panel-task-status { width: auto; flex: 0 0 auto; font-size: 12px; padding: 5px 8px; }
+
+  @media (max-width: 860px) {
+    .side-panel { width: 100vw; max-width: 100vw; }
+  }
+
+  /* Вкладки Магазины/Задачи */
+  .dash-tab-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .dash-tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Фильтр по филиалу для канбана задач */
+  .task-branch-filter { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .task-branch-filter-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .task-branch-filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Карточки задач в канбане "Задачи" */
+  .task-kanban-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; box-shadow: 0 1px 2px rgba(30,20,60,0.03); display: flex; flex-direction: column; gap: 6px; }
+  .task-kanban-card:active { cursor: grabbing; }
+  .task-kanban-card.dragging { opacity: .35; }
+  .task-kanban-card-top { display: flex; align-items: center; gap: 8px; }
+  .task-kanban-card-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .task-kanban-card-overdue .task-kanban-card-title { color: var(--danger); font-weight: 700; }
+  .task-kanban-card-store { align-self: flex-start; margin-bottom: 2px; }
+  .task-kanban-card-done-btn { align-self: flex-start; background: var(--ok); border: none; color: #fff; border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 2px; }
+  .task-kanban-card-done-btn:disabled { opacity: .5; cursor: default; }
+
+  /* Виджет-календарь: раскрывающийся попап фиксированного размера */
+  .calendar-widget { position: relative; margin-bottom: 22px; }
+  .calendar-widget summary { list-style: none; cursor: pointer; font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; user-select: none; transition: border-color .15s, color .15s; }
+  .calendar-widget summary::-webkit-details-marker { display: none; }
+  .calendar-widget summary::after { content: '▾'; font-size: 12px; opacity: .6; transition: transform .15s; }
+  .calendar-widget summary:hover { border-color: var(--accent); color: var(--accent); }
+  .calendar-widget[open] summary::after { transform: rotate(180deg); }
+  .calendar-popup { position: absolute; top: calc(100% + 8px); left: 0; z-index: 60; width: 750px; height: 500px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; box-shadow: 0 16px 40px rgba(0,0,0,.28); }
+  .calendar-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
+  .calendar-nav-btn { flex: 0 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--text); font-size: 15px; }
+  .calendar-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .calendar-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .calendar-title-today-link { font-size: 11px; font-weight: 600; color: var(--accent); text-decoration: none; padding: 3px 8px; border: 1px solid var(--border); border-radius: 8px; }
+  .calendar-title-today-link:hover { border-color: var(--accent); }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .calendar-grid-head { margin-bottom: 4px; }
+  .calendar-grid-head div { text-align: center; font-size: 10.5px; color: var(--muted); font-weight: 600; padding: 3px 0; }
+  .calendar-day { height: 36px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); cursor: pointer; font-size: 12px; }
+  .calendar-day:hover { border-color: var(--accent); }
+  .calendar-day-empty { background: none; border: none; cursor: default; }
+  .calendar-day-today { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--panel)); font-weight: 800; }
+  .calendar-day-weekend .calendar-day-num { color: var(--muted); }
+  .calendar-day-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .calendar-day-count { font-size: 9.5px; line-height: 1; font-weight: 700; color: var(--accent2); white-space: nowrap; }
+  .calendar-day-panel { display: none; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+  .calendar-day-panel-title { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+  .calendar-day-panel-item { padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+  .calendar-day-panel-item:last-child { border-bottom: none; }
+  .calendar-day-panel-item a.plain { color: var(--text); font-weight: 600; }
+  .calendar-day-panel-item a.plain:hover { color: var(--accent); }
+  .calendar-day-panel-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .calendar-day-panel-empty { font-size: 12px; color: var(--muted); }
+  @media (max-width: 860px) {
+    .calendar-widget summary { padding: 9px 14px; font-size: 13px; }
+    .calendar-popup { width: calc(100vw - 32px); max-width: calc(100vw - 32px); height: auto; max-height: 70vh; padding: 12px 14px; }
+    .calendar-grid { gap: 3px; }
+    .calendar-day { height: 32px; font-size: 11px; border-radius: 6px; }
+    .calendar-day-count { font-size: 8.5px; }
+    .calendar-grid-head div { font-size: 9.5px; padding: 2px 0; }
+    .calendar-title { font-size: 12.5px; gap: 6px; }
+    .calendar-nav-btn { width: 28px; height: 28px; font-size: 14px; }
+  }
+  html[data-theme="glass"] .side-panel {
+    background: rgba(20,18,32,0.75);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    border-left: 1px solid rgba(255,255,255,0.14);
+  }
+</style>
+
+<script>
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+async function sendTelegramToday() {
+  const statusEl = document.getElementById('tg-status');
+  const btn = document.getElementById('tg-btn');
+  btn.disabled = true;
+  statusEl.textContent = 'Отправляю...';
+  try {
+    const res = await fetch('{% url "telegram_send_today" %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') },
+    });
+    const data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = '✅ Отправлено в Telegram';
+    } else {
+      statusEl.textContent = '❌ ' + data.error;
+    }
+  } catch (e) {
+    statusEl.textContent = '❌ Не удалось связаться с сервером.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+
+<div class="row" style="justify-content:space-between;">
+  <div>
+    <h1 style="margin-bottom:2px;">Главная</h1>
+  </div>
+  <div class="row">
+    <button type="button" class="secondary" onclick="sendTelegramToday()" id="tg-btn">📨 Отправить в Telegram</button>
+    <a class="btn secondary" href="{% url 'weekly_summary' %}">🗂️ Сводка за прошлую неделю</a>
+  </div>
+</div>
+<div id="tg-status" class="muted" style="margin-bottom:14px;"></div>
+
+<details class="calendar-widget">
+  <summary>📅 Календарь</summary>
+  <div class="calendar-popup">
+    <div class="calendar-header">
+      <a class="calendar-nav-btn" href="?year={{ calendar_prev_year }}&month={{ calendar_prev_month }}" aria-label="Предыдущий месяц">‹</a>
+      <div class="calendar-title">
+        <span>{{ calendar_month_name }} {{ calendar_year }}</span>
+        {% if not calendar_is_current_month %}<a class="calendar-title-today-link" href="{% url 'dashboard' %}">сегодня</a>{% endif %}
+      </div>
+      <a class="calendar-nav-btn" href="?year={{ calendar_next_year }}&month={{ calendar_next_month }}" aria-label="Следующий месяц">›</a>
+    </div>
+
+    <div class="calendar-grid calendar-grid-head">
+      <div>Пн</div><div>Вт</div><div>Ср</div><div>Чт</div><div>Пт</div><div>Сб</div><div>Вс</div>
+    </div>
+
+    <div class="calendar-grid">
+      {% for week in calendar_weeks %}
+        {% for day in week %}
+          {% if day %}
+          <div class="calendar-day{% if day.is_today %} calendar-day-today{% endif %}{% if day.is_weekend %} calendar-day-weekend{% endif %}" onclick="toggleCalDay(this, '{{ day.date|date:"Y-m-d" }}')">
+            <span class="calendar-day-num">{{ day.day }}</span>
+            {% if day.has_items %}<span class="calendar-day-count">{% if day.items_count > 9 %}9+{% else %}{{ day.items_count }}{% endif %}</span>{% endif %}
+          </div>
+          {% else %}
+          <div class="calendar-day calendar-day-empty"></div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </div>
+
+    {% for week in calendar_weeks %}
+      {% for day in week %}
+        {% if day %}
+        <div class="calendar-day-panel" id="cal-panel-{{ day.date|date:"Y-m-d" }}">
+          <div class="calendar-day-panel-title">{{ day.date|date:"d.m.Y" }}</div>
+          {% if day.tasks or day.notes %}
+            {% for t in day.tasks %}
+            <div class="calendar-day-panel-item">
+              <a class="plain" href="{% url 'store_detail' t.store_id %}#task-{{ t.id }}">✅ {{ t.title }}</a>
+              <div class="calendar-day-panel-meta">
+                <span class="badge badge-muted">{{ t.store.get_branch_display }} · №{{ t.store.number }}</span>
+                <span class="badge badge-muted">{{ t.get_status_display }}</span>
+                {% if t.due_time %}<span class="badge badge-muted">🕐{{ t.due_time|time:"H:i" }}</span>{% endif %}
+              </div>
+            </div>
+            {% endfor %}
+            {% for n in day.notes %}
+            <div class="calendar-day-panel-item">
+              {% if n.task %}
+              <a class="plain" href="{% url 'store_detail' n.task.store_id %}#task-{{ n.task.id }}">📝 {{ n.text|truncatechars:70 }}</a>
+              {% else %}
+              <span style="font-weight:600;">📝 {{ n.text|truncatechars:70 }}</span>
+              {% endif %}
+              <div class="calendar-day-panel-meta">
+                {% if n.due_time %}<span class="badge badge-muted">🕐{{ n.due_time|time:"H:i" }}</span>{% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="calendar-day-panel-empty">На этот день ничего не запланировано.</div>
+          {% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+</details>
+
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-value">{{ kpi_stores_count }}</div>
+    <div class="kpi-label">Магазинов в работе</div>
+  </div>
+  <div class="kpi-card has-tip">
+    <div class="kpi-value" style="color:var(--danger);">{{ kpi_overdue }}</div>
+    <div class="kpi-label">Просрочено задач</div>
+    <div class="kpi-tip">
+      {% for t in task_columns.overdue %}
+        <a class="kpi-tip-item" href="{% url 'store_detail' t.store_id %}#task-{{ t.id }}">{{ t.title }}<br><span class="kpi-tip-store">№{{ t.store.number }} · {{ t.due_date|date:"d.m.Y" }}</span></a>
+      {% empty %}
+        <div class="kpi-tip-empty">Просроченных задач нет</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="kpi-card has-tip">
+    <div class="kpi-value" style="color:var(--warn);">{{ kpi_today }}</div>
+    <div class="kpi-label">Задач сегодня</div>
+    <div class="kpi-tip">
+      {% for t in task_columns.today %}
+        <a class="kpi-tip-item" href="{% url 'store_detail' t.store_id %}#task-{{ t.id }}">{{ t.title }}<br><span class="kpi-tip-store">№{{ t.store.number }}</span></a>
+      {% empty %}
+        <div class="kpi-tip-empty">На сегодня задач нет</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="kpi-card has-tip">
+    <div class="kpi-value" style="color:var(--accent2);">{{ kpi_tomorrow }}</div>
+    <div class="kpi-label">Задач завтра</div>
+    <div class="kpi-tip">
+      {% for t in task_columns.tomorrow %}
+        <a class="kpi-tip-item" href="{% url 'store_detail' t.store_id %}#task-{{ t.id }}">{{ t.title }}<br><span class="kpi-tip-store">№{{ t.store.number }}</span></a>
+      {% empty %}
+        <div class="kpi-tip-empty">На завтра задач нет</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="kpi-card has-tip">
+    <div class="kpi-value" style="color:var(--ok);">{{ kpi_done_today }}</div>
+    <div class="kpi-label">Задач выполнено сегодня</div>
+    <div class="kpi-tip">
+      {% for t in tasks_done_today %}
+        <a class="kpi-tip-item" href="{% url 'store_detail' t.store_id %}#task-{{ t.id }}">{{ t.title }}<br><span class="kpi-tip-store">№{{ t.store.number }}</span></a>
+      {% empty %}
+        <div class="kpi-tip-empty">Сегодня ещё ничего не выполнено</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="kpi-card has-tip">
+    <div class="kpi-value" style="color:var(--ok);">{{ kpi_week_percent }}%</div>
+    <div class="kpi-label">Прогресс за неделю</div>
+    <div class="kpi-tip">
+      {% for t in tasks_this_week %}
+        <a class="kpi-tip-item" href="{% url 'store_detail' t.store_id %}#task-{{ t.id }}">{% if t.status == "done" %}✅ {% endif %}{{ t.title }}<br><span class="kpi-tip-store">№{{ t.store.number }} · {{ t.due_date|date:"d.m.Y" }}</span></a>
+      {% empty %}
+        <div class="kpi-tip-empty">На этой неделе задач нет</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="row" id="dash-view-tabs" style="margin-bottom:14px;gap:8px;">
+  <button type="button" class="dash-tab-btn active" data-view="stores" onclick="switchDashView('stores')">🏬 Магазины</button>
+  <button type="button" class="dash-tab-btn" data-view="tasks" onclick="switchDashView('tasks')">✅ Задачи</button>
+</div>
+
+<div id="view-stores">
+<div class="kanban-board" id="kanban-board">
+  {% for status, label in kanban_statuses %}
+  {% with stores=columns|get_item:status %}
+  <div class="kanban-col" data-status="{{ status }}">
+    <div class="kanban-col-header">
+      <span class="kanban-col-title">{{ label }}</span>
+      <span class="kanban-col-count" id="kanban-count-{{ status }}">{{ stores|length }}</span>
+    </div>
+    <div class="kanban-col-body" data-status="{{ status }}" id="kanban-body-{{ status }}">
+      {% for store in stores %}
+      <div class="kanban-card" data-store-id="{{ store.id }}" data-status="{{ status }}">
+        <div class="kanban-card-top">
+          <a class="kanban-card-title" href="{% url 'store_detail' store.id %}">{{ store.get_branch_display }} · №{{ store.number }}</a>
+          <span class="badge badge-muted">{{ store.get_store_type_display }}</span>
+        </div>
+        <div class="kanban-progress">
+          <div class="kanban-progress-bar" style="width:{{ store.progress_percent }}%;background:{% if store.progress_percent >= 70 %}var(--ok){% elif store.progress_percent >= 35 %}var(--warn){% else %}var(--danger){% endif %};"></div>
+        </div>
+        <div class="kanban-progress-label muted">{{ store.progress_percent }}% готово</div>
+        {% if store.tasks_overdue_count or store.tasks_today_count or store.tasks_tomorrow_count %}
+        <div class="kanban-card-badges">
+          {% if store.tasks_overdue_count %}<span class="badge badge-danger">⚠ {{ store.tasks_overdue_count }} просрочено</span>{% endif %}
+          {% if store.tasks_today_count %}<span class="badge badge-warn">сегодня {{ store.tasks_today_count }}</span>{% endif %}
+          {% if store.tasks_tomorrow_count %}<span class="badge badge-muted">завтра {{ store.tasks_tomorrow_count }}</span>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      <div class="kanban-empty">Пусто</div>
+    </div>
+  </div>
+  {% endwith %}
+  {% endfor %}
+</div>
+
+<div class="side-panel-backdrop" id="side-panel-backdrop" onclick="closeStorePanel()"></div>
+<div class="side-panel" id="side-panel">
+  <div class="side-panel-header">
+    <strong>Задачи магазина</strong>
+    <button type="button" class="side-panel-close" onclick="closeStorePanel()" aria-label="Закрыть">✕</button>
+  </div>
+  <div class="side-panel-body" id="side-panel-body">
+    <p class="muted">Загрузка...</p>
+  </div>
+</div>
+</div>
+
+<div id="view-tasks" style="display:none;">
+  <div class="task-branch-filter" id="task-branch-filter">
+    <button type="button" class="task-branch-filter-btn active" data-branch="all" onclick="filterTasksByBranch('all')">Все</button>
+    {% for code, label in branches %}
+    <button type="button" class="task-branch-filter-btn" data-branch="{{ code }}" onclick="filterTasksByBranch('{{ code }}')">{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <div class="kanban-board" id="tasks-board">
+    {% with tasks=task_columns.overdue %}
+    <div class="kanban-col" data-col="overdue">
+      <div class="kanban-col-header">
+        <span class="kanban-col-title">Просрочено</span>
+        <span class="kanban-col-count" id="tasks-count-overdue">{{ tasks|length }}</span>
+      </div>
+      <div class="kanban-col-body" data-col="overdue" id="tasks-body-overdue">
+        {% for t in tasks %}
+        <div class="task-kanban-card task-kanban-card-overdue" data-task-id="{{ t.id }}" data-col="overdue" data-branch="{{ t.store.branch }}">
+          <div class="task-kanban-card-top">
+            {% task_icon_badge t %}
+            <span class="task-kanban-card-title">{{ t.title }}</span>
+          </div>
+          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          {% if t.due_date %}
+            <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
+          {% endif %}
+          <button type="button" class="task-kanban-card-done-btn" onpointerdown="event.stopPropagation()" onclick="taskKanbanMarkDone(this)">✓ Готово</button>
+        </div>
+        {% endfor %}
+        <div class="kanban-empty">Пусто</div>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% with tasks=task_columns.today %}
+    <div class="kanban-col" data-col="today">
+      <div class="kanban-col-header">
+        <span class="kanban-col-title">Сегодня</span>
+        <span class="kanban-col-count" id="tasks-count-today">{{ tasks|length }}</span>
+      </div>
+      <div class="kanban-col-body" data-col="today" id="tasks-body-today">
+        {% for t in tasks %}
+        <div class="task-kanban-card" data-task-id="{{ t.id }}" data-col="today" data-branch="{{ t.store.branch }}">
+          <div class="task-kanban-card-top">
+            {% task_icon_badge t %}
+            <span class="task-kanban-card-title">{{ t.title }}</span>
+          </div>
+          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          {% if t.due_date %}
+            <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
+          {% endif %}
+          <button type="button" class="task-kanban-card-done-btn" onpointerdown="event.stopPropagation()" onclick="taskKanbanMarkDone(this)">✓ Готово</button>
+        </div>
+        {% endfor %}
+        <div class="kanban-empty">Пусто</div>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% with tasks=task_columns.tomorrow %}
+    <div class="kanban-col" data-col="tomorrow">
+      <div class="kanban-col-header">
+        <span class="kanban-col-title">Завтра</span>
+        <span class="kanban-col-count" id="tasks-count-tomorrow">{{ tasks|length }}</span>
+      </div>
+      <div class="kanban-col-body" data-col="tomorrow" id="tasks-body-tomorrow">
+        {% for t in tasks %}
+        <div class="task-kanban-card" data-task-id="{{ t.id }}" data-col="tomorrow" data-branch="{{ t.store.branch }}">
+          <div class="task-kanban-card-top">
+            {% task_icon_badge t %}
+            <span class="task-kanban-card-title">{{ t.title }}</span>
+          </div>
+          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          {% if t.due_date %}
+            <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
+          {% endif %}
+          <button type="button" class="task-kanban-card-done-btn" onpointerdown="event.stopPropagation()" onclick="taskKanbanMarkDone(this)">✓ Готово</button>
+        </div>
+        {% endfor %}
+        <div class="kanban-empty">Пусто</div>
+      </div>
+    </div>
+    {% endwith %}
+
+    {% with tasks=task_columns.nodate %}
+    <div class="kanban-col" data-col="nodate">
+      <div class="kanban-col-header">
+        <span class="kanban-col-title">Без даты</span>
+        <span class="kanban-col-count" id="tasks-count-nodate">{{ tasks|length }}</span>
+      </div>
+      <div class="kanban-col-body" data-col="nodate" id="tasks-body-nodate">
+        {% for t in tasks %}
+        <div class="task-kanban-card" data-task-id="{{ t.id }}" data-col="nodate" data-branch="{{ t.store.branch }}">
+          <div class="task-kanban-card-top">
+            {% task_icon_badge t %}
+            <span class="task-kanban-card-title">{{ t.title }}</span>
+          </div>
+          <a class="plain badge badge-muted task-kanban-card-store" href="{% url 'store_detail' t.store.id %}">{{ t.store.get_branch_display }} · №{{ t.store.number }}</a>
+          {% if t.due_date %}
+            <span class="badge badge-muted">{{ t.due_date|date:"d.m.Y" }}{% if t.due_time %} 🕐{{ t.due_time|time:"H:i" }}{% endif %}</span>
+          {% endif %}
+          <button type="button" class="task-kanban-card-done-btn" onpointerdown="event.stopPropagation()" onclick="taskKanbanMarkDone(this)">✓ Готово</button>
+        </div>
+        {% endfor %}
+        <div class="kanban-empty">Пусто</div>
+      </div>
+    </div>
+    {% endwith %}
+  </div>
+</div>
+
+{% if notes_overdue or notes_today or notes_tomorrow %}
+<h2>Заметки по срокам</h2>
+<div class="dash-list">
+  {% for n in notes_overdue %}
+  <div class="dash-row">
+    <span class="dash-title-link"><span class="dash-title" style="color:var(--danger);">⚠ {{ n.text|truncatechars:70 }}</span>
+      <span class="muted dash-meta">Просрочено · {{ n.due_date|date:"d.m" }}</span>
+    </span>
+    <form method="post" action="{% url 'delete_note' n.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="secondary" style="font-size:11px;padding:5px 9px;">✓ Готово</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% for n in notes_today %}
+  <div class="dash-row">
+    <span class="dash-title-link"><span class="dash-title" style="color:var(--warn);">📝 {{ n.text|truncatechars:70 }}</span>
+      <span class="muted dash-meta">Сегодня</span>
+    </span>
+    <form method="post" action="{% url 'delete_note' n.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="secondary" style="font-size:11px;padding:5px 9px;">✓ Готово</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% for n in notes_tomorrow %}
+  <div class="dash-row">
+    <span class="dash-title-link"><span class="dash-title">📝 {{ n.text|truncatechars:70 }}</span>
+      <span class="muted dash-meta">Завтра</span>
+    </span>
+    <form method="post" action="{% url 'delete_note' n.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="dashboard">
+      <button type="submit" class="secondary" style="font-size:11px;padding:5px 9px;">✓ Готово</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h2>Заметки <a class="plain" style="font-size:12px;" href="{% url 'notes' %}">все →</a></h2>
+<form method="post" action="{% url 'add_note' %}" enctype="multipart/form-data" class="card">
+  {% csrf_token %}
+  <textarea name="text" rows="2" placeholder="Быстрая заметка / доп.задача..." required></textarea>
+  <div class="row" style="margin-top:8px;">
+    <input type="date" name="due_date" style="flex:1;" title="Дата (необязательно)">
+    <input type="time" name="due_time" style="flex:1;" title="Время (необязательно, для Telegram-уведомления)">
+    <input type="file" name="files" multiple style="flex:1;min-width:180px;">
+    <button type="submit">Добавить</button>
+  </div>
+</form>
+{% for n in global_notes %}
+<div class="card">
+  <div class="muted">{{ n.created_at|date:"d.m.Y H:i" }}{% if n.due_date %} · срок {{ n.due_date|date:"d.m.Y" }}{% if n.due_time %} {{ n.due_time|time:"H:i" }}{% endif %}{% endif %}</div>
+  <p id="dash-note-text-{{ n.id }}" style="white-space:pre-wrap;">{{ n.text }}</p>
+  {% if n.files.all %}
+    <div class="row">
+      {% for f in n.files.all %}
+        <a class="plain badge badge-muted" href="{{ f.file.url }}" target="_blank">📎 {{ f.file.name|slice:"6:" }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'edit_note' n.id %}" id="dash-edit-form-{{ n.id }}" style="display:none;margin-top:10px;">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="dashboard">
+    <textarea name="text" rows="3" style="width:100%;">{{ n.text }}</textarea>
+    <div class="row" style="margin-top:8px;">
+      <input type="date" name="due_date" style="flex:1;" value="{{ n.due_date|date:'Y-m-d' }}">
+      <input type="time" name="due_time" style="flex:1;" value="{{ n.due_time|time:'H:i' }}">
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button type="submit">Сохранить</button>
+      <button type="button" class="secondary" onclick="toggleDashNoteEdit({{ n.id }})">Отмена</button>
+    </div>
+  </form>
+  <div id="dash-note-actions-{{ n.id }}" class="row" style="margin-top:8px;">
+    <button type="button" class="secondary" onclick="toggleDashNoteEdit({{ n.id }})">✏️ Редактировать</button>
+  </div>
+</div>
+{% empty %}
+  <p class="muted">Заметок пока нет.</p>
+{% endfor %}
+
+<script>
+function toggleDashNoteEdit(id) {
+  const form = document.getElementById('dash-edit-form-' + id);
+  const actions = document.getElementById('dash-note-actions-' + id);
+  const text = document.getElementById('dash-note-text-' + id);
+  const editing = form.style.display !== 'none';
+  form.style.display = editing ? 'none' : 'block';
+  actions.style.display = editing ? 'flex' : 'none';
+  text.style.display = editing ? 'block' : 'none';
+}
+</script>
+
+<script>
+(function() {
+  const board = document.getElementById('kanban-board');
+  if (!board) return;
+
+  // Хитрость, чтобы не хардкодить URL: рендерим ссылку с заведомо несуществующим
+  // id магазина (999999) и потом просто подставляем в неё нужный id строкой.
+  const KANBAN_URL_TEMPLATE = "{% url 'update_store_kanban_status' 999999 %}";
+  function kanbanUrl(storeId) { return KANBAN_URL_TEMPLATE.replace('999999', storeId); }
+
+  const THRESHOLD = 6; // px, порог перед стартом перетаскивания (чтобы обычный тап/клик по ссылке не запускал drag)
+  let tracking = null;
+
+  function updateCount(status) {
+    const body = document.getElementById('kanban-body-' + status);
+    const countEl = document.getElementById('kanban-count-' + status);
+    if (body && countEl) countEl.textContent = body.querySelectorAll('.kanban-card').length;
+  }
+
+  function clearAutoScroll() {
+    if (tracking && tracking.autoScrollTimer) {
+      clearInterval(tracking.autoScrollTimer);
+      tracking.autoScrollTimer = null;
+    }
+  }
+
+  function autoScroll(clientX) {
+    const rect = board.getBoundingClientRect();
+    const EDGE = 56;
+    clearAutoScroll();
+    if (clientX - rect.left < EDGE) {
+      tracking.autoScrollTimer = setInterval(function() { board.scrollLeft -= 16; }, 16);
+    } else if (rect.right - clientX < EDGE) {
+      tracking.autoScrollTimer = setInterval(function() { board.scrollLeft += 16; }, 16);
+    }
+  }
+
+  function startDragVisual() {
+    const t = tracking;
+    t.dragging = true;
+    t.card.classList.add('dragging');
+    const rect = t.card.getBoundingClientRect();
+    t.ghost = t.card.cloneNode(true);
+    t.ghost.classList.add('kanban-card-ghost');
+    t.ghost.style.width = rect.width + 'px';
+    t.ghost.style.left = rect.left + 'px';
+    t.ghost.style.top = rect.top + 'px';
+    document.body.appendChild(t.ghost);
+  }
+
+  function endTracking() {
+    if (!tracking) return;
+    clearAutoScroll();
+    document.querySelectorAll('.kanban-col-body.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+    if (tracking.ghost) tracking.ghost.remove();
+    if (tracking.card) tracking.card.classList.remove('dragging');
+    tracking = null;
+  }
+
+  // Если карточку перетащили ещё раз, не дождавшись ответа на предыдущий запрос,
+  // старый ответ должен быть проигнорирован — иначе он может откатить карточку
+  // поверх уже более свежего перемещения (гонка запросов).
+  const dragSeq = new WeakMap();
+
+  function moveCard(card, targetBody, prevBody, prevNext, prevStatus) {
+    const newStatus = targetBody.dataset.status;
+    const storeId = card.dataset.storeId;
+    const seq = (dragSeq.get(card) || 0) + 1;
+    dragSeq.set(card, seq);
+
+    targetBody.insertBefore(card, targetBody.querySelector('.kanban-empty'));
+    card.dataset.status = newStatus;
+    updateCount(prevStatus);
+    updateCount(newStatus);
+
+    const fd = new FormData();
+    fd.append('status', newStatus);
+    fetch(kanbanUrl(storeId), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') },
+      body: fd,
+    }).then(function(res) { return res.json(); }).then(function(data) {
+      if (dragSeq.get(card) !== seq) return;
+      if (!data || !data.ok) revert(data && data.error);
+    }).catch(function() {
+      if (dragSeq.get(card) !== seq) return;
+      revert();
+    });
+
+    function revert(msg) {
+      if (prevNext && prevNext.parentElement === prevBody) {
+        prevBody.insertBefore(card, prevNext);
+      } else {
+        prevBody.insertBefore(card, prevBody.querySelector('.kanban-empty'));
+      }
+      card.dataset.status = prevStatus;
+      updateCount(prevStatus);
+      updateCount(newStatus);
+      alert('Не удалось переместить магазин' + (msg ? ': ' + msg : '') + '. Попробуйте ещё раз.');
+    }
+  }
+
+  board.addEventListener('pointerdown', function(e) {
+    if (e.button !== undefined && e.button > 0) return;
+    const card = e.target.closest('.kanban-card');
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    tracking = {
+      card: card, body: card.parentElement, next: card.nextElementSibling, status: card.dataset.status,
+      startX: e.clientX, startY: e.clientY, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
+      dragging: false, pointerId: e.pointerId, ghost: null, overBody: null, autoScrollTimer: null,
+    };
+  });
+
+  document.addEventListener('pointermove', function(e) {
+    if (!tracking || e.pointerId !== tracking.pointerId) return;
+    const dx = e.clientX - tracking.startX;
+    const dy = e.clientY - tracking.startY;
+    if (!tracking.dragging) {
+      if (Math.abs(dx) < THRESHOLD && Math.abs(dy) < THRESHOLD) return;
+      startDragVisual();
+    }
+    e.preventDefault();
+    tracking.ghost.style.left = (e.clientX - tracking.offsetX) + 'px';
+    tracking.ghost.style.top = (e.clientY - tracking.offsetY) + 'px';
+
+    document.querySelectorAll('.kanban-col-body.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const dropBody = el ? el.closest('.kanban-col-body') : null;
+    tracking.overBody = dropBody;
+    if (dropBody) dropBody.classList.add('drag-over');
+
+    autoScroll(e.clientX);
+  }, { passive: false });
+
+  document.addEventListener('pointerup', function(e) {
+    if (!tracking || e.pointerId !== tracking.pointerId) return;
+    const t = tracking;
+    const wasDragging = t.dragging;
+    const targetBody = t.overBody;
+    endTracking();
+    if (wasDragging) {
+      t.card.dataset.justDragged = '1';
+      setTimeout(function() { delete t.card.dataset.justDragged; }, 400);
+      if (targetBody && targetBody !== t.body) {
+        moveCard(t.card, targetBody, t.body, t.next, t.status);
+      }
+    }
+  });
+
+  document.addEventListener('pointercancel', function(e) {
+    if (!tracking || e.pointerId !== tracking.pointerId) return;
+    endTracking();
+  });
+
+  // Клик по карточке: ссылка-заголовок ведёт на страницу магазина как раньше,
+  // остальная часть карточки открывает боковую панель с задачами (без перехода).
+  // Если перед этим было перетаскивание — клик гасим целиком, чтобы не улететь
+  // на страницу магазина и не открыть панель случайно.
+  board.addEventListener('click', function(e) {
+    const card = e.target.closest('.kanban-card');
+    if (!card) return;
+    if (card.dataset.justDragged === '1') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (e.target.closest('.kanban-card-title')) return;
+    e.preventDefault();
+    openStorePanel(card.dataset.storeId);
+  }, true);
+})();
+</script>
+
+<script>
+(function() {
+  // Хитрость с несуществующим id (999999), чтобы не хардкодить URL-ы в JS.
+  const TASKS_PANEL_URL_TEMPLATE = "{% url 'store_tasks_panel' 999999 %}";
+  const TASK_STATUS_URL_TEMPLATE = "{% url 'update_task_status' 999999 %}";
+  function tasksPanelUrl(storeId) { return TASKS_PANEL_URL_TEMPLATE.replace('999999', storeId); }
+  function taskStatusUrl(taskId) { return TASK_STATUS_URL_TEMPLATE.replace('999999', taskId); }
+
+  const backdrop = document.getElementById('side-panel-backdrop');
+  const panel = document.getElementById('side-panel');
+  const panelBody = document.getElementById('side-panel-body');
+
+  window.openStorePanel = function(storeId) {
+    if (!panel) return;
+    panel.dataset.storeId = storeId;
+    panelBody.innerHTML = '<p class="muted">Загрузка...</p>';
+    panel.classList.add('open');
+    backdrop.classList.add('open');
+    fetch(tasksPanelUrl(storeId))
+      .then(function(res) { return res.text(); })
+      .then(function(html) {
+        if (panel.dataset.storeId !== String(storeId)) return;
+        panelBody.innerHTML = html;
+      })
+      .catch(function() {
+        panelBody.innerHTML = '<p class="muted">Не удалось загрузить задачи.</p>';
+      });
+  };
+
+  window.closeStorePanel = function() {
+    if (!panel) return;
+    panel.classList.remove('open');
+    backdrop.classList.remove('open');
+  };
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && panel && panel.classList.contains('open')) closeStorePanel();
+  });
+
+  window.updateKanbanCard = function(storeId, progressPercent, overdue, today, tomorrow) {
+    const card = document.querySelector('.kanban-card[data-store-id="' + storeId + '"]');
+    if (!card) return;
+
+    const bar = card.querySelector('.kanban-progress-bar');
+    const label = card.querySelector('.kanban-progress-label');
+    if (bar) {
+      bar.style.width = progressPercent + '%';
+      bar.style.background = progressPercent >= 70 ? 'var(--ok)' : (progressPercent >= 35 ? 'var(--warn)' : 'var(--danger)');
+    }
+    if (label) label.textContent = progressPercent + '% готово';
+
+    let badges = card.querySelector('.kanban-card-badges');
+    if (!overdue && !today && !tomorrow) {
+      if (badges) badges.remove();
+      return;
+    }
+    if (!badges) {
+      badges = document.createElement('div');
+      badges.className = 'kanban-card-badges';
+      card.appendChild(badges);
+    }
+    let html = '';
+    if (overdue) html += '<span class="badge badge-danger">⚠ ' + overdue + ' просрочено</span>';
+    if (today) html += '<span class="badge badge-warn">сегодня ' + today + '</span>';
+    if (tomorrow) html += '<span class="badge badge-muted">завтра ' + tomorrow + '</span>';
+    badges.innerHTML = html;
+  };
+
+  window.panelUpdateTaskStatus = function(selectEl) {
+    const taskId = selectEl.dataset.taskId;
+    const row = selectEl.closest('.panel-task-row');
+    const fd = new FormData();
+    fd.append('status', selectEl.value);
+    fetch(taskStatusUrl(taskId), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken'), 'X-Requested-With': 'XMLHttpRequest' },
+      body: fd,
+    }).then(function(res) { return res.json(); }).then(function(data) {
+      if (!data || !data.ok) { alert('Не удалось изменить статус задачи.'); return; }
+      if (row) row.classList.toggle('panel-task-row-done', data.task_status === 'done');
+      updateKanbanCard(data.store_id, data.progress_percent, data.tasks_overdue_count, data.tasks_today_count, data.tasks_tomorrow_count);
+    }).catch(function() {
+      alert('Не удалось изменить статус задачи.');
+    });
+  };
+})();
+</script>
+
+<script>
+window.switchDashView = function(view) {
+  document.getElementById('view-stores').style.display = view === 'stores' ? '' : 'none';
+  document.getElementById('view-tasks').style.display = view === 'tasks' ? '' : 'none';
+  document.querySelectorAll('.dash-tab-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+};
+
+window.toggleCalDay = function(el, dateStr) {
+  const panel = document.getElementById('cal-panel-' + dateStr);
+  if (!panel) return;
+  const wasOpen = panel.style.display === 'block';
+  document.querySelectorAll('.calendar-day-panel').forEach(function(p) { p.style.display = 'none'; });
+  document.querySelectorAll('.calendar-day').forEach(function(d) { d.classList.remove('calendar-day-selected'); });
+  if (!wasOpen) {
+    panel.style.display = 'block';
+    el.classList.add('calendar-day-selected');
+  }
+};
+
+document.addEventListener('click', function(e) {
+  const widget = document.querySelector('.calendar-widget');
+  if (widget && widget.open && !widget.contains(e.target)) {
+    widget.open = false;
+  }
+});
+
+window.filterTasksByBranch = function(branch) {
+  document.querySelectorAll('.task-branch-filter-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.branch === branch);
+  });
+  document.querySelectorAll('.task-kanban-card').forEach(function(card) {
+    card.style.display = (branch === 'all' || card.dataset.branch === branch) ? '' : 'none';
+  });
+};
+</script>
+
+<script>
+(function() {
+  const board = document.getElementById('tasks-board');
+  if (!board) return;
+
+  const TODAY_ISO = "{% now "Y-m-d" %}";
+  const TOMORROW_ISO = (function() {
+    const d = new Date(TODAY_ISO + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  })();
+
+  // Хитрость с несуществующим id (999999), чтобы не хардкодить URL.
+  const TASK_DUE_DATE_URL_TEMPLATE = "{% url 'update_task_due_date' 999999 %}";
+  const TASK_STATUS_URL_TEMPLATE = "{% url 'update_task_status' 999999 %}";
+  function taskDueDateUrl(taskId) { return TASK_DUE_DATE_URL_TEMPLATE.replace('999999', taskId); }
+  function taskStatusUrl(taskId) { return TASK_STATUS_URL_TEMPLATE.replace('999999', taskId); }
+
+  window.taskKanbanMarkDone = function(btn) {
+    const card = btn.closest('.task-kanban-card');
+    if (!card) return;
+    const taskId = card.dataset.taskId;
+    const col = card.dataset.col;
+    btn.disabled = true;
+    const fd = new FormData();
+    fd.append('status', 'done');
+    fetch(taskStatusUrl(taskId), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken'), 'X-Requested-With': 'XMLHttpRequest' },
+      body: fd,
+    }).then(function(res) { return res.json(); }).then(function(data) {
+      if (!data || !data.ok) { btn.disabled = false; alert('Не удалось отметить задачу выполненной.'); return; }
+      card.remove();
+      updateCount(col);
+      if (typeof window.updateKanbanCard === 'function') {
+        window.updateKanbanCard(data.store_id, data.progress_percent, data.tasks_overdue_count, data.tasks_today_count, data.tasks_tomorrow_count);
+      }
+    }).catch(function() {
+      btn.disabled = false;
+      alert('Не удалось отметить задачу выполненной.');
+    });
+  };
+
+  const THRESHOLD = 6;
+  let tracking = null;
+
+  function updateCount(col) {
+    const body = document.getElementById('tasks-body-' + col);
+    const countEl = document.getElementById('tasks-count-' + col);
+    if (body && countEl) countEl.textContent = body.querySelectorAll('.task-kanban-card').length;
+  }
+
+  function clearAutoScroll() {
+    if (tracking && tracking.autoScrollTimer) {
+      clearInterval(tracking.autoScrollTimer);
+      tracking.autoScrollTimer = null;
+    }
+  }
+
+  function autoScroll(clientX) {
+    const rect = board.getBoundingClientRect();
+    const EDGE = 56;
+    clearAutoScroll();
+    if (clientX - rect.left < EDGE) {
+      tracking.autoScrollTimer = setInterval(function() { board.scrollLeft -= 16; }, 16);
+    } else if (rect.right - clientX < EDGE) {
+      tracking.autoScrollTimer = setInterval(function() { board.scrollLeft += 16; }, 16);
+    }
+  }
+
+  function startDragVisual() {
+    const t = tracking;
+    t.dragging = true;
+    t.card.classList.add('dragging');
+    const rect = t.card.getBoundingClientRect();
+    t.ghost = t.card.cloneNode(true);
+    t.ghost.classList.add('kanban-card-ghost');
+    t.ghost.style.width = rect.width + 'px';
+    t.ghost.style.left = rect.left + 'px';
+    t.ghost.style.top = rect.top + 'px';
+    document.body.appendChild(t.ghost);
+  }
+
+  function endTracking() {
+    if (!tracking) return;
+    clearAutoScroll();
+    document.querySelectorAll('.kanban-col-body.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+    if (tracking.ghost) tracking.ghost.remove();
+    if (tracking.card) tracking.card.classList.remove('dragging');
+    tracking = null;
+  }
+
+  const dragSeq = new WeakMap();
+
+  function dueDateForCol(col) {
+    if (col === 'today') return TODAY_ISO;
+    if (col === 'tomorrow') return TOMORROW_ISO;
+    if (col === 'nodate') return '';
+    return null; // overdue — недопустимая цель
+  }
+
+  function moveCard(card, targetBody, prevBody, prevNext, prevCol) {
+    const newCol = targetBody.dataset.col;
+    const dueDate = dueDateForCol(newCol);
+    if (dueDate === null) return; // дроп в "Просрочено" игнорируем
+
+    const taskId = card.dataset.taskId;
+    const seq = (dragSeq.get(card) || 0) + 1;
+    dragSeq.set(card, seq);
+
+    targetBody.insertBefore(card, targetBody.querySelector('.kanban-empty'));
+    card.dataset.col = newCol;
+    card.classList.remove('task-kanban-card-overdue');
+    updateCount(prevCol);
+    updateCount(newCol);
+
+    const fd = new FormData();
+    fd.append('due_date', dueDate);
+    fetch(taskDueDateUrl(taskId), {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken'), 'X-Requested-With': 'XMLHttpRequest' },
+      body: fd,
+    }).then(function(res) { return res.json(); }).then(function(data) {
+      if (dragSeq.get(card) !== seq) return;
+      if (!data || !data.ok) { revert(); return; }
+      if (typeof window.updateKanbanCard === 'function') {
+        window.updateKanbanCard(data.store_id, data.progress_percent, data.tasks_overdue_count, data.tasks_today_count, data.tasks_tomorrow_count);
+      }
+    }).catch(function() {
+      if (dragSeq.get(card) !== seq) return;
+      revert();
+    });
+
+    function revert() {
+      if (prevNext && prevNext.parentElement === prevBody) {
+        prevBody.insertBefore(card, prevNext);
+      } else {
+        prevBody.insertBefore(card, prevBody.querySelector('.kanban-empty'));
+      }
+      card.dataset.col = prevCol;
+      if (prevCol === 'overdue') card.classList.add('task-kanban-card-overdue');
+      updateCount(prevCol);
+      updateCount(newCol);
+      alert('Не удалось изменить срок задачи. Попробуйте ещё раз.');
+    }
+  }
+
+  board.addEventListener('pointerdown', function(e) {
+    if (e.button !== undefined && e.button > 0) return;
+    const card = e.target.closest('.task-kanban-card');
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    tracking = {
+      card: card, body: card.parentElement, next: card.nextElementSibling, col: card.dataset.col,
+      startX: e.clientX, startY: e.clientY, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
+      dragging: false, pointerId: e.pointerId, ghost: null, overBody: null, autoScrollTimer: null,
+    };
+  });
+
+  document.addEventListener('pointermove', function(e) {
+    if (!tracking || e.pointerId !== tracking.pointerId) return;
+    const dx = e.clientX - tracking.startX;
+    const dy = e.clientY - tracking.startY;
+    if (!tracking.dragging) {
+      if (Math.abs(dx) < THRESHOLD && Math.abs(dy) < THRESHOLD) return;
+      startDragVisual();
+    }
+    e.preventDefault();
+    tracking.ghost.style.left = (e.clientX - tracking.offsetX) + 'px';
+    tracking.ghost.style.top = (e.clientY - tracking.offsetY) + 'px';
+
+    document.querySelectorAll('.kanban-col-body.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const dropBody = el ? el.closest('.kanban-col-body[data-col]') : null;
+    tracking.overBody = dropBody;
+    if (dropBody) dropBody.classList.add('drag-over');
+
+    autoScroll(e.clientX);
+  }, { passive: false });
+
+  document.addEventListener('pointerup', function(e) {
+    if (!tracking || e.pointerId !== tracking.pointerId) return;
+    const t = tracking;
+    const wasDragging = t.dragging;
+    const targetBody = t.overBody;
+    endTracking();
+    if (wasDragging) {
+      t.card.dataset.justDragged = '1';
+      setTimeout(function() { delete t.card.dataset.justDragged; }, 400);
+      if (targetBody && targetBody !== t.body) {
+        moveCard(t.card, targetBody, t.body, t.next, t.col);
+      }
+    }
+  });
+
+  document.addEventListener('pointercancel', function(e) {
+    if (!tracking || e.pointerId !== tracking.pointerId) return;
+    endTracking();
+  });
+
+  board.addEventListener('click', function(e) {
+    const card = e.target.closest('.task-kanban-card');
+    if (!card) return;
+    if (card.dataset.justDragged === '1') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+})();
+</script>
+{% endblock %}

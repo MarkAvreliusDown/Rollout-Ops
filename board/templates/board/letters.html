@@ -1,0 +1,798 @@
+{% extends "board/base.html" %}
+{% block title %}Письма{% endblock %}
+{% block content %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/14.9.1/math.min.js"></script>
+{{ initial_state|json_script:"letters-initial-state" }}
+{{ opening_task_titles|json_script:"opening-task-titles" }}
+<div style="display:none">{% csrf_token %}</div>
+<style>
+    .container { max-width: 1400px; margin: auto; background: var(--card); padding: 20px; border-radius: 14px; border: 1px solid var(--border); }
+    .container h2 { color: var(--text); margin-top: 0; }
+
+    .page-tabs { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+    .page-tab { padding: 10px 18px; cursor: pointer; border-radius: 8px; background: var(--panel); color: var(--text); font-weight: bold; border: 2px solid var(--border); }
+    .page-tab.active { background: color-mix(in srgb, var(--accent2) 18%, transparent); border-color: var(--accent2); color: var(--accent2); }
+
+    .tabs { display: flex; margin-bottom: 20px; border-bottom: 3px solid var(--border); flex-wrap: wrap; align-items: flex-end; }
+    .tab { display:flex; align-items:center; gap:6px; padding: 10px 14px; cursor: pointer; border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; margin-right: 6px; margin-bottom: -1px; background: var(--panel); color: var(--text); font-weight: bold; }
+    .tab.active { background: var(--card); border-color: var(--accent); color: var(--accent); }
+    .tab .tab-icon { opacity:.55; font-weight:normal; font-size:13px; padding:0 2px; }
+    html[data-theme="glass"] .tab .tab-icon { opacity: .75; }
+    .tab .tab-icon:hover { opacity:1; }
+    .tab-add { padding: 10px 16px; cursor: pointer; border: 1px dashed var(--muted); border-radius: 8px 8px 0 0; margin-bottom: -1px; background: var(--panel); color: var(--muted); font-weight:bold; }
+
+    .table-scroll { overflow-x: auto; margin: 15px 0; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    table.fixed-layout { table-layout: fixed; width: auto; }
+    th, td { border: 1px solid var(--border); padding: 7px 6px; text-align: left; vertical-align: top; color: var(--text); }
+    th { background-color: var(--panel); cursor: pointer; user-select: none; white-space: nowrap; position: relative; }
+    table.fixed-layout th, table.fixed-layout td { white-space: normal; word-break: break-word; }
+    th:hover { filter: brightness(0.93); }
+    th .sort-arrow { font-size: 11px; opacity: .6; margin-left: 3px; }
+    .col-resize { position: absolute; top: 0; right: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 3; }
+    .col-resize:hover, .col-resize.active { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+    body.col-resizing { cursor: col-resize !important; user-select: none; }
+    input { width: 98%; border: none; padding: 5px; font-size: 13.5px; box-sizing: border-box; background: transparent; color: var(--text); }
+    input:focus { background-color: color-mix(in srgb, var(--accent) 16%, transparent); outline: 1px solid var(--accent); }
+    td.computed { background: color-mix(in srgb, var(--accent2) 12%, transparent); }
+    td.computed .computed-value { padding: 5px; color: var(--text); font-style: italic; }
+    tr.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
+    .drag-handle { cursor: grab; text-align:center; color: var(--muted); width: 22px; border-style: hidden; }
+    .spacer-cell { border-style: hidden; background: transparent; padding: 0; }
+    .delete-cell { border-style: hidden; }
+
+    .controls { margin: 15px 0; display: flex; gap: 12px; flex-wrap: wrap; align-items:center; }
+    .controls label { font-size: inherit; text-transform: none; letter-spacing: normal; color: var(--text); font-family: inherit; display: inline; margin-bottom: 0; }
+    button { padding: 11px 20px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; }
+    .btn-add { background: #28a745; color: white; }
+    .btn-copy { background: #0066cc; color: white; }
+    .btn-recipients { background: #555; color: white; }
+    .btn-settings { background: #8a5ec2; color: white; }
+    .btn-small { padding: 6px 10px; font-size: 12px; border-radius:4px; }
+    .btn-danger { background:#d32f2f; color:white; }
+    .btn-neutral { background: var(--panel); color: var(--text); }
+    #search { flex:1; min-width:220px; padding:10px; border:1px solid var(--border); border-radius:5px; font-size:14px; }
+
+    #preview { margin-top: 25px; padding: 20px; border: 2px dashed var(--accent); background: #ffffff; color: #1a1a1a; font-size: 14px; line-height: 1.45; overflow-x: auto; max-height: 70vh; border-radius: 6px; color-scheme: light; }
+    #preview * { color: #1a1a1a; }
+    .delete-btn { color:#d32f2f; background:none; border:none; font-size:18px; cursor:pointer; }
+
+    #settingsPanel { display:none; margin: 10px 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    #settingsPanel.open { display:block; }
+    .col-row { display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap: wrap; }
+    .col-row input.col-name { width: 200px; padding:6px; border:1px solid var(--border); border-radius:4px; background: var(--card); }
+    .col-row input.col-width { width: 110px; padding:6px; border:1px solid var(--border); border-radius:4px; background: var(--card); }
+    .col-row input.col-formula { flex:1; min-width: 160px; padding:6px; border:1px solid var(--border); border-radius:4px; font-family: monospace; background: var(--card); }
+    .col-row select.col-autofill { width: 220px; padding:6px; border:1px solid var(--border); border-radius:4px; background: var(--card); color: var(--text); }
+    .hint { font-size:12px; color: var(--muted); margin-top:6px; }
+    .save-indicator { font-size:12px; color: var(--ok); opacity:0; transition: opacity .4s; }
+    .save-indicator.show { opacity:1; }
+    .save-indicator.error { color: var(--danger); }
+</style>
+
+<div class="container">
+    <h2 id="pageTitle">Генератор писем</h2>
+
+    <div id="pageTabs" class="page-tabs"></div>
+
+    <div id="tabs" class="tabs"></div>
+
+    <div id="workArea">
+        <div class="controls" style="margin-top:0;">
+            <label><strong>Название для шапки письма:</strong></label>
+            <input type="text" id="header" style="width: 160px; font-size: 15px;" oninput="onHeaderChange()">
+            <label><strong>Тема письма:</strong></label>
+            <input type="text" id="subject" style="width: 260px; font-size: 15px;" oninput="onSubjectChange()">
+            <button class="btn-settings btn-small" onclick="toggleSettings()">⚙ Столбцы и компания</button>
+            <span id="saveIndicator" class="save-indicator">Сохранено</span>
+        </div>
+
+        <div id="settingsPanel"></div>
+
+        <h3 id="tableTitle">Таблица</h3>
+
+        <div class="controls">
+            <input type="text" id="search" placeholder="🔍 Поиск по строкам..." oninput="renderTable()">
+        </div>
+
+        <div class="table-scroll">
+            <table id="mainTable">
+                <colgroup id="colgroup"></colgroup>
+                <thead><tr id="headerRow"></tr></thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
+        <div class="hint">Потяните за правый край заголовка столбца, чтобы изменить его ширину (или задайте точную ширину в «⚙ Столбцы и компания»).</div>
+
+        <div class="controls">
+            <button class="btn-add" onclick="addRow()">+ Добавить строку</button>
+            <button class="btn-copy" onclick="generateAndCopy()">🚀 Сгенерировать и скопировать письмо</button>
+            <button class="btn-recipients" onclick="copyRecipients()">📋 Копировать получателей</button>
+            <button class="btn-neutral btn-small" onclick="editRecipients()">✎ Список получателей</button>
+            <button class="btn-settings" onclick="downloadEml()">📧 Открыть в Outlook (.eml)</button>
+        </div>
+        <div class="hint">«Открыть в Outlook» скачает файл письма — открой его двойным кликом, Outlook создаст черновик с получателями, темой и таблицей. Останется проверить и нажать «Отправить».</div>
+
+        <div id="preview">Предпросмотр письма появится здесь...</div>
+    </div>
+
+    <p id="emptyHint" class="hint" style="display:none;">Нет ни одной вкладки на этой странице. Нажмите «+ Вкладка» выше, чтобы создать первую.</p>
+</div>
+
+<script>
+// ==================== ХРАНЕНИЕ ====================
+// Данные теперь хранятся на сервере (модель LetterCompany) — так они видны
+// с любого устройства, а не только в браузере, где были введены.
+const SAVE_URL = "{% url 'letters_save' %}";
+const LEGACY_STORAGE_KEY = 'workScheduleApp_v2'; // старый формат — только в localStorage
+const ACTIVE_KEY_STORAGE = 'lettersActiveCompanyKey_v2'; // какая вкладка открыта на каждой странице — по устройству, не синхронизируется
+const CURRENT_PAGE_STORAGE = 'lettersCurrentPage_v1';
+
+// Две страницы генератора: графики работ подрядчикам и заявки на создание учёток.
+const PAGES = [
+    ['schedules', '📋 Графики работ'],
+    ['accounts', '🔐 Создание учёток'],
+];
+const PAGE_TITLES = { schedules: 'Графики работ', accounts: 'Создание учёток' };
+const PAGE_GREETINGS = {
+    schedules: '<p>Добрый день!</p><p>Отправляю актуальный график работ.</p>',
+    accounts: '<p>Коллеги, добрый день!</p><p>Прошу «завести» (доменную учётку, почту и т.д.) для новых магазинов:</p>',
+};
+
+// Откуда автоматически брать значение для столбца при создании магазина (см. панель "⚙ Столбцы и компания").
+const AUTOFILL_BASE_OPTIONS = [
+    ['', '— не подставлять —'],
+    ['branch', 'Филиал'],
+    ['number', '№ объекта'],
+    ['address', 'Адрес'],
+    ['region', 'Регион'],
+    ['kso_count', 'Кол-во КСО'],
+    ['cash_count', 'Кол-во касс'],
+    ['area_format', 'Формат по площади'],
+    ['columns_count', 'Кол-во колонок'],
+    ['columns_type', 'Тип колонок'],
+    ['columns_count_and_type', 'Кол-во колонок + тип (общей ячейкой)'],
+    ['has_meat_scale', 'Весы «мясо» (да/нет)'],
+    ['access_points_count', 'Кол-во точек доступа'],
+];
+let OPENING_TASK_TITLES = [];
+try {
+    OPENING_TASK_TITLES = JSON.parse(document.getElementById('opening-task-titles').textContent) || [];
+} catch (e) { OPENING_TASK_TITLES = []; }
+
+// ==================== ЗАГРУЗКА СОСТОЯНИЯ ====================
+let migratedFromLocalStorage = false;
+
+function readServerInitialState() {
+    try {
+        const el = document.getElementById('letters-initial-state');
+        return JSON.parse(el.textContent);
+    } catch (e) {
+        return { companyOrder: [], companies: {} };
+    }
+}
+
+function readLegacyLocalState() {
+    try {
+        const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.companies && Object.keys(parsed.companies).length) {
+            Object.values(parsed.companies).forEach(c => { if (!c.page) c.page = 'schedules'; });
+            return {
+                companyOrder: parsed.companyOrder && parsed.companyOrder.length ? parsed.companyOrder : Object.keys(parsed.companies),
+                companies: parsed.companies,
+            };
+        }
+    } catch (e) { console.warn('Не удалось прочитать старые локальные данные', e); }
+    return null;
+}
+
+function loadState() {
+    const serverState = readServerInitialState();
+    if (serverState.companyOrder && serverState.companyOrder.length) return serverState;
+    const legacy = readLegacyLocalState();
+    if (legacy) {
+        migratedFromLocalStorage = true;
+        return legacy;
+    }
+    return { companyOrder: [], companies: {} };
+}
+
+function getSavedPage() {
+    try {
+        const saved = localStorage.getItem(CURRENT_PAGE_STORAGE);
+        return PAGE_TITLES[saved] ? saved : 'schedules';
+    } catch (e) { return 'schedules'; }
+}
+function setSavedPage(page) {
+    try { localStorage.setItem(CURRENT_PAGE_STORAGE, page); } catch (e) {}
+}
+
+function getSavedActiveKey(page) {
+    try { return localStorage.getItem(ACTIVE_KEY_STORAGE + ':' + page); } catch (e) { return null; }
+}
+function setSavedActiveKey(page, key) {
+    try { localStorage.setItem(ACTIVE_KEY_STORAGE + ':' + page, key); } catch (e) {}
+}
+
+function companyPage(comp) { return comp.page === 'accounts' ? 'accounts' : 'schedules'; }
+
+let state = loadState();
+let currentPage = getSavedPage();
+let activeKeyByPage = { schedules: null, accounts: null };
+
+function keysForPage(page) {
+    return state.companyOrder.filter(k => state.companies[k] && companyPage(state.companies[k]) === page);
+}
+
+function initActiveKeys() {
+    ['schedules', 'accounts'].forEach(page => {
+        const keys = keysForPage(page);
+        const saved = getSavedActiveKey(page);
+        activeKeyByPage[page] = (saved && keys.includes(saved)) ? saved : (keys[0] || null);
+    });
+}
+initActiveKeys();
+
+let sortState = {}; // { companyKey: { colIndex, dir } }
+let dragSrcIndex = null;
+
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+let saveTimer = null;
+function saveState(immediate) {
+    clearTimeout(saveTimer);
+    const doSave = () => {
+        fetch(SAVE_URL, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ companyOrder: state.companyOrder, companies: state.companies }),
+        }).then(res => {
+            if (!res.ok) throw new Error('save failed');
+            flashSaved();
+        }).catch(e => {
+            console.warn('Не удалось сохранить данные на сервере', e);
+            flashSaved(true);
+        });
+    };
+    if (immediate) doSave(); else saveTimer = setTimeout(doSave, 400);
+}
+
+function flashSaved(isError) {
+    const el = document.getElementById('saveIndicator');
+    el.textContent = isError ? 'Не сохранилось — проверьте связь' : 'Сохранено';
+    el.classList.toggle('error', !!isError);
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), isError ? 3000 : 900);
+}
+
+function currentCompany() {
+    const key = activeKeyByPage[currentPage];
+    return key ? state.companies[key] : null;
+}
+
+// ==================== СТРАНИЦЫ ====================
+function renderPageTabs() {
+    const container = document.getElementById('pageTabs');
+    container.innerHTML = '';
+    PAGES.forEach(([key, label]) => {
+        const tab = document.createElement('div');
+        tab.className = 'page-tab' + (key === currentPage ? ' active' : '');
+        tab.textContent = label;
+        tab.onclick = () => switchPage(key);
+        container.appendChild(tab);
+    });
+}
+
+function switchPage(page) {
+    if (page === currentPage) return;
+    currentPage = page;
+    setSavedPage(page);
+    renderAll();
+}
+
+// ==================== ВКЛАДКИ ====================
+function renderTabs() {
+    const container = document.getElementById('tabs');
+    container.innerHTML = '';
+    keysForPage(currentPage).forEach(key => {
+        const comp = state.companies[key];
+        if (!comp) return;
+        const tab = document.createElement('div');
+        tab.className = 'tab' + (key === activeKeyByPage[currentPage] ? ' active' : '');
+        tab.innerHTML = `<span class="tab-label">${escapeHtml(comp.name)}</span>
+            <span class="tab-icon" title="Переименовать" onclick="event.stopPropagation(); renameCompany('${key}')">✎</span>
+            <span class="tab-icon" title="Удалить" onclick="event.stopPropagation(); deleteCompany('${key}')">✖</span>`;
+        tab.onclick = () => switchCompany(key);
+        container.appendChild(tab);
+    });
+    const addTab = document.createElement('div');
+    addTab.className = 'tab-add';
+    addTab.textContent = '+ Вкладка';
+    addTab.onclick = addCompany;
+    container.appendChild(addTab);
+}
+
+function switchCompany(key) {
+    activeKeyByPage[currentPage] = key;
+    setSavedActiveKey(currentPage, key);
+    renderAll();
+}
+
+function addCompany() {
+    const name = prompt('Название новой вкладки:');
+    if (!name) return;
+    const colsRaw = prompt('Столбцы через запятую:', 'Филиал, № объекта, Адрес, Регион');
+    if (colsRaw === null) return;
+    const columns = colsRaw.split(',').map(c => c.trim()).filter(Boolean).map(name => ({ name }));
+    if (columns.length === 0) { alert('Нужен хотя бы один столбец'); return; }
+    const key = 'c_' + Date.now();
+    state.companies[key] = {
+        name, page: currentPage,
+        header: currentPage === 'schedules' ? 'ПФ' : '',
+        subject: (currentPage === 'schedules' ? 'График работ — ' : 'Создание учёток — ') + name,
+        recipients: '', columns, rows: [columns.map(() => '')],
+    };
+    state.companyOrder.push(key);
+    activeKeyByPage[currentPage] = key;
+    setSavedActiveKey(currentPage, key);
+    saveState();
+    renderAll();
+}
+
+function renameCompany(key) {
+    const comp = state.companies[key];
+    const name = prompt('Новое название:', comp.name);
+    if (!name) return;
+    comp.name = name;
+    saveState();
+    renderTabs();
+    document.getElementById('tableTitle').innerHTML = `Таблица — <strong>${escapeHtml(comp.name)}</strong>`;
+}
+
+function deleteCompany(key) {
+    const page = companyPage(state.companies[key]);
+    if (keysForPage(page).length <= 1) { alert('На этой странице должна остаться хотя бы одна вкладка'); return; }
+    if (!confirm(`Удалить вкладку "${state.companies[key].name}" со всеми данными?`)) return;
+    delete state.companies[key];
+    state.companyOrder = state.companyOrder.filter(k => k !== key);
+    if (activeKeyByPage[page] === key) {
+        activeKeyByPage[page] = keysForPage(page)[0] || null;
+        setSavedActiveKey(page, activeKeyByPage[page]);
+    }
+    saveState();
+    renderAll();
+}
+
+// ==================== НАСТРОЙКИ (СТОЛБЦЫ) ====================
+function toggleSettings() {
+    const panel = document.getElementById('settingsPanel');
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) renderSettings();
+}
+
+function autofillOptionsHtml(selected) {
+    let html = '';
+    AUTOFILL_BASE_OPTIONS.forEach(([value, label]) => {
+        html += `<option value="${escapeAttr(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    });
+    if (OPENING_TASK_TITLES.length) {
+        html += `<optgroup label="Дата задачи">`;
+        OPENING_TASK_TITLES.forEach(title => {
+            const value = 'task_date:' + title;
+            html += `<option value="${escapeAttr(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(title)}</option>`;
+        });
+        html += `</optgroup>`;
+    }
+    return html;
+}
+
+function renderSettings() {
+    const comp = currentCompany();
+    const panel = document.getElementById('settingsPanel');
+    let html = `<div class="col-row" style="margin-bottom:14px;">
+        <label style="text-transform:none;letter-spacing:normal;font-family:inherit;font-size:13.5px;color:var(--text);display:flex;align-items:center;gap:6px;width:auto;">
+            <input type="checkbox" style="width:auto;" ${comp.isStoreContractor ? 'checked' : ''} onchange="updateIsStoreContractor(this.checked)">
+            Показывать в списке подрядчиков при создании магазина и подставлять данные автоматически
+        </label>
+    </div>`;
+    html += `<div class="hint" style="margin-bottom:10px;">Формула (необязательно) считает значение по другим столбцам — впиши названия столбцов в фигурных скобках, например <code>{Кол-во касс} + {Кол-во КСО}</code>. Такой столбец становится нередактируемым и вычисляется автоматически.<br>«Ширина» — необязательно, ширина столбца в письме и таблице в пикселях (например 90).<br>«Откуда подставлять» — необязательно, определяет, что автоматически впишется в этот столбец при создании магазина (или когда появится дата задачи).</div>`;
+    comp.columns.forEach((col, i) => {
+        html += `<div class="col-row">
+            <input class="col-name" value="${escapeAttr(col.name)}" onchange="updateColumnName(${i}, this.value)">
+            <input class="col-width" type="number" min="20" placeholder="ширина, px" value="${col.width ? escapeAttr(String(col.width)) : ''}" onchange="updateColumnWidth(${i}, this.value)">
+            <input class="col-formula" placeholder="Формула (необязательно)" value="${escapeAttr(col.formula || '')}" onchange="updateColumnFormula(${i}, this.value)">
+            <select class="col-autofill" onchange="updateColumnAutofill(${i}, this.value)">${autofillOptionsHtml(col.autofill || '')}</select>
+            <button class="btn-danger btn-small" onclick="deleteColumn(${i})">✖</button>
+        </div>`;
+    });
+    html += `<button class="btn-add btn-small" onclick="addColumn()">+ Столбец</button>`;
+    panel.innerHTML = html;
+}
+
+function updateColumnName(i, value) {
+    currentCompany().columns[i].name = value;
+    saveState();
+    renderTable();
+}
+
+function updateColumnWidth(i, value) {
+    const n = parseInt(value, 10);
+    currentCompany().columns[i].width = (value && !isNaN(n) && n > 0) ? n : null;
+    saveState();
+    renderTable();
+}
+
+function updateColumnFormula(i, value) {
+    currentCompany().columns[i].formula = value.trim() || null;
+    saveState();
+    renderTable();
+}
+
+function updateColumnAutofill(i, value) {
+    currentCompany().columns[i].autofill = value || null;
+    saveState();
+}
+
+function updateIsStoreContractor(checked) {
+    currentCompany().isStoreContractor = checked;
+    saveState();
+}
+
+function addColumn() {
+    const comp = currentCompany();
+    comp.columns.push({ name: 'Новый столбец' });
+    comp.rows.forEach(r => r.push(''));
+    saveState();
+    renderSettings();
+    renderTable();
+}
+
+function deleteColumn(i) {
+    const comp = currentCompany();
+    if (comp.columns.length <= 1) { alert('Должен остаться хотя бы один столбец'); return; }
+    if (!confirm('Удалить столбец? Данные в нём будут потеряны.')) return;
+    comp.columns.splice(i, 1);
+    comp.rows.forEach(r => r.splice(i, 1));
+    saveState();
+    renderSettings();
+    renderTable();
+}
+
+// ==================== ТАБЛИЦА ====================
+function onHeaderChange() {
+    currentCompany().header = document.getElementById('header').value;
+    saveState();
+}
+
+function onSubjectChange() {
+    currentCompany().subject = document.getElementById('subject').value;
+    saveState();
+}
+
+function parseSortValue(v) {
+    if (v == null || v === '') return null;
+    const num = parseFloat(v.replace(',', '.'));
+    if (!isNaN(num) && /^-?[\d.,]+$/.test(v.trim())) return num;
+    const dateMatch = v.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (dateMatch) return new Date(dateMatch[3], dateMatch[2] - 1, dateMatch[1]).getTime();
+    return v.toLowerCase();
+}
+
+function sortByColumn(i) {
+    const comp = currentCompany();
+    const key = activeKeyByPage[currentPage];
+    const s = sortState[key] || { colIndex: -1, dir: 1 };
+    const dir = (s.colIndex === i) ? -s.dir : 1;
+    sortState[key] = { colIndex: i, dir };
+    comp.rows.sort((a, b) => {
+        const va = parseSortValue(a[i]), vb = parseSortValue(b[i]);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+    });
+    saveState();
+    renderTable();
+}
+
+function computeFormula(formula, row, columns) {
+    try {
+        let expr = formula;
+        columns.forEach((c, i) => {
+            const raw = (row[i] || '').toString().replace(',', '.');
+            const num = parseFloat(raw);
+            const safeVal = isNaN(num) ? 0 : num;
+            expr = expr.split('{' + c.name + '}').join('(' + safeVal + ')');
+        });
+        const result = math.evaluate(expr);
+        return (typeof result === 'number') ? (Math.round(result * 1000) / 1000).toString() : String(result);
+    } catch (e) {
+        return '⚠ ошибка';
+    }
+}
+
+function renderTable() {
+    const comp = currentCompany();
+    if (!comp) return;
+    document.getElementById('header').value = comp.header || '';
+    document.getElementById('subject').value = comp.subject || '';
+    document.getElementById('tableTitle').innerHTML = `Таблица — <strong>${escapeHtml(comp.name)}</strong>`;
+
+    const key = activeKeyByPage[currentPage];
+    const s = sortState[key] || { colIndex: -1, dir: 1 };
+
+    const hasCustomWidth = comp.columns.some(c => c.width);
+    document.getElementById('mainTable').classList.toggle('fixed-layout', hasCustomWidth);
+    document.getElementById('colgroup').innerHTML = '<col style="width:22px">' +
+        '<col class="spacer-cell" style="width:14px">' +
+        comp.columns.map(c => `<col${c.width ? ` style="width:${c.width}px"` : ''}>`).join('') +
+        '<col class="spacer-cell" style="width:14px">' +
+        '<col style="width:40px">';
+
+    const headerRow = document.getElementById('headerRow');
+    headerRow.innerHTML = '<th class="drag-handle"></th><th class="spacer-cell"></th>' + comp.columns.map((c, i) => {
+        const arrow = (s.colIndex === i) ? (s.dir === 1 ? '▲' : '▼') : '';
+        return `<th onclick="sortByColumn(${i})">${escapeHtml(c.name)}${c.formula ? ' <span title="вычисляемый столбец">ƒ</span>' : ''}<span class="sort-arrow">${arrow}</span><span class="col-resize" title="Потяните, чтобы изменить ширину столбца" onmousedown="startColumnResize(event, ${i})" onclick="event.stopPropagation()"></span></th>`;
+    }).join('') + '<th class="spacer-cell"></th><th class="delete-cell" style="width:40px;"></th>';
+
+    const query = (document.getElementById('search').value || '').toLowerCase().trim();
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+
+    comp.rows.forEach((row, rIndex) => {
+        if (query && !row.some(cell => (cell || '').toLowerCase().includes(query))) return;
+
+        const tr = document.createElement('tr');
+        tr.draggable = true;
+        tr.dataset.index = rIndex;
+        tr.addEventListener('dragstart', () => { dragSrcIndex = rIndex; });
+        tr.addEventListener('dragover', (e) => { e.preventDefault(); tr.classList.add('drag-over'); });
+        tr.addEventListener('dragleave', () => tr.classList.remove('drag-over'));
+        tr.addEventListener('drop', (e) => {
+            e.preventDefault();
+            tr.classList.remove('drag-over');
+            if (dragSrcIndex === null || dragSrcIndex === rIndex) return;
+            const arr = comp.rows;
+            const [moved] = arr.splice(dragSrcIndex, 1);
+            arr.splice(rIndex, 0, moved);
+            dragSrcIndex = null;
+            saveState();
+            renderTable();
+        });
+
+        let html = `<td class="drag-handle">⠿</td><td class="spacer-cell"></td>`;
+        comp.columns.forEach((col, cIndex) => {
+            if (col.formula) {
+                const val = computeFormula(col.formula, row, comp.columns);
+                html += `<td class="computed"><div class="computed-value">${escapeHtml(val)}</div></td>`;
+            } else {
+                html += `<td><input value="${escapeAttr(row[cIndex] || '')}" oninput="updateCell(${rIndex}, ${cIndex}, this.value)"></td>`;
+            }
+        });
+        html += `<td class="spacer-cell"></td><td class="delete-cell"><button onclick="deleteRow(${rIndex})" class="delete-btn">✖</button></td>`;
+        tr.innerHTML = html;
+        tbody.appendChild(tr);
+    });
+}
+
+// ==================== ИЗМЕНЕНИЕ ШИРИНЫ СТОЛБЦА ПЕРЕТАСКИВАНИЕМ ====================
+let colResize = null;
+
+function startColumnResize(e, i) {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = e.target.closest('th');
+    colResize = { i, startX: e.clientX, startWidth: th.offsetWidth };
+    e.target.classList.add('active');
+    document.body.classList.add('col-resizing');
+
+    // Зафиксировать текущую ширину ВСЕХ столбцов перед началом перетаскивания.
+    // Иначе браузер при table-layout:fixed сам перераспределяет место между
+    // столбцами без заданной ширины, и кажется, что двигается не только тот
+    // столбец, который тянут, а все соседние.
+    const comp = currentCompany();
+    const table = document.getElementById('mainTable');
+    const colgroup = document.getElementById('colgroup');
+    const headerCells = document.getElementById('headerRow').children;
+    table.classList.add('fixed-layout');
+    comp.columns.forEach((c, idx) => {
+        const col = colgroup.children[idx + 2];
+        const cell = headerCells[idx + 2];
+        if (!col || !cell) return;
+        const w = c.width || cell.offsetWidth;
+        col.style.width = w + 'px';
+        if (!c.width) c.width = Math.round(w);
+    });
+    saveState();
+
+    document.addEventListener('mousemove', onColumnResizeMove);
+    document.addEventListener('mouseup', onColumnResizeEnd);
+}
+
+function onColumnResizeMove(e) {
+    if (!colResize) return;
+    const width = Math.max(40, colResize.startWidth + (e.clientX - colResize.startX));
+    colResize.width = width;
+    const table = document.getElementById('mainTable');
+    table.classList.add('fixed-layout');
+    const col = document.getElementById('colgroup').children[colResize.i + 2];
+    if (col) col.style.width = width + 'px';
+}
+
+function onColumnResizeEnd() {
+    if (!colResize) return;
+    const { i, width } = colResize;
+    document.removeEventListener('mousemove', onColumnResizeMove);
+    document.removeEventListener('mouseup', onColumnResizeEnd);
+    document.body.classList.remove('col-resizing');
+    const handle = document.querySelector('.col-resize.active');
+    if (handle) handle.classList.remove('active');
+    colResize = null;
+    if (!width) return;
+    currentCompany().columns[i].width = Math.round(width);
+    saveState();
+    renderTable();
+    if (document.getElementById('settingsPanel').classList.contains('open')) renderSettings();
+}
+
+function updateCell(rIndex, cIndex, value) {
+    currentCompany().rows[rIndex][cIndex] = value;
+    saveState();
+    // пересчитать вычисляемые столбцы в этой строке без полной перерисовки (сохраняем фокус)
+    const comp = currentCompany();
+    const tr = document.querySelector(`#tbody tr[data-index="${rIndex}"]`);
+    if (!tr) return;
+    comp.columns.forEach((col, i) => {
+        if (col.formula) {
+            const td = tr.children[i + 2];
+            const val = computeFormula(col.formula, comp.rows[rIndex], comp.columns);
+            td.querySelector('.computed-value').textContent = val;
+        }
+    });
+}
+
+function addRow() {
+    const comp = currentCompany();
+    comp.rows.push(comp.columns.map(() => ''));
+    saveState();
+    renderTable();
+}
+
+function deleteRow(rIndex) {
+    if (!confirm('Удалить строку?')) return;
+    currentCompany().rows.splice(rIndex, 1);
+    saveState();
+    renderTable();
+}
+
+// ==================== ПОЛУЧАТЕЛИ ====================
+function editRecipients() {
+    const comp = currentCompany();
+    const val = prompt('Получатели письма (через запятую):', comp.recipients || '');
+    if (val === null) return;
+    comp.recipients = val;
+    saveState();
+}
+
+async function copyRecipients() {
+    const comp = currentCompany();
+    if (!comp.recipients) { alert('Список получателей пуст. Нажмите "✎ Список получателей", чтобы задать его.'); return; }
+    await navigator.clipboard.writeText(comp.recipients);
+    alert('Получатели скопированы!');
+}
+
+// ==================== ГЕНЕРАЦИЯ ПИСЬМА ====================
+function buildEmailHtml(comp) {
+    let tableHTML = `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; width:100%; max-width:1300px; font-family:Arial;">
+        <tr style="background:#e6e6e6;">`;
+    comp.columns.forEach(col => tableHTML += `<th style="border:1px solid #666;${col.width ? ` width:${col.width}px;` : ''}">${escapeHtml(col.name)}</th>`);
+    tableHTML += `</tr>`;
+
+    comp.rows.forEach(row => {
+        tableHTML += `<tr>`;
+        comp.columns.forEach((col, i) => {
+            const val = col.formula ? computeFormula(col.formula, row, comp.columns) : (row[i] || '');
+            tableHTML += `<td style="border:1px solid #999;${col.width ? ` width:${col.width}px;` : ''}">${escapeHtml(val)}</td>`;
+        });
+        tableHTML += `</tr>`;
+    });
+    tableHTML += `</table>`;
+
+    const greeting = PAGE_GREETINGS[companyPage(comp)] || PAGE_GREETINGS.schedules;
+    const headerLine = comp.header ? `<p><strong>${escapeHtml(comp.header)}</strong></p>` : '';
+    return `${greeting}${headerLine}${tableHTML}`;
+}
+
+async function generateAndCopy() {
+    const comp = currentCompany();
+    const emailBody = buildEmailHtml(comp);
+    document.getElementById('preview').innerHTML = emailBody;
+
+    const blob = new Blob([emailBody], { type: 'text/html' });
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
+    alert(`Письмо для ${comp.name} скопировано!`);
+}
+
+// ==================== СКАЧАТЬ ГОТОВОЕ ПИСЬМО ДЛЯ OUTLOOK (.eml) ====================
+function utf8ToBase64(str) {
+    return btoa(unescape(encodeURIComponent(str)));
+}
+
+function wrapBase64(b64) {
+    return b64.replace(/(.{76})/g, '$1\r\n');
+}
+
+function encodeHeaderWord(str) {
+    // если только латиница/цифры — не кодируем, иначе RFC 2047 (UTF-8, base64)
+    if (/^[\x00-\x7F]*$/.test(str)) return str;
+    return '=?UTF-8?B?' + utf8ToBase64(str) + '?=';
+}
+
+function downloadEml() {
+    const comp = currentCompany();
+    if (!comp.recipients) {
+        alert('Список получателей пуст. Нажмите "✎ Список получателей", чтобы задать его.');
+        return;
+    }
+    const subject = comp.subject || comp.name;
+    const htmlBody = buildEmailHtml(comp);
+
+    const eml = [
+        'To: ' + comp.recipients,
+        'Subject: ' + encodeHeaderWord(subject),
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset="UTF-8"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        wrapBase64(utf8ToBase64(htmlBody))
+    ].join('\r\n');
+
+    const blob = new Blob([eml], { type: 'message/rfc822' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = comp.name.replace(/[^\wа-яА-ЯёЁ\- ]/g, '').trim() || 'letter';
+    a.href = url;
+    a.download = `${safeName}_${new Date().toISOString().slice(0,10)}.eml`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+// ==================== УТИЛИТЫ ====================
+function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+
+function renderAll() {
+    document.getElementById('pageTitle').textContent = 'Генератор писем — ' + PAGE_TITLES[currentPage];
+    renderPageTabs();
+    renderTabs();
+    document.getElementById('settingsPanel').classList.remove('open');
+    const hasCompany = !!currentCompany();
+    document.getElementById('workArea').style.display = hasCompany ? '' : 'none';
+    document.getElementById('emptyHint').style.display = hasCompany ? 'none' : '';
+    if (hasCompany) renderTable();
+}
+
+renderAll();
+
+if (migratedFromLocalStorage) {
+    // Одноразовый перенос данных из localStorage этого браузера в общую базу на сервере —
+    // после этого все устройства увидят одни и те же данные.
+    saveState(true);
+}
+</script>
+{% endblock %}

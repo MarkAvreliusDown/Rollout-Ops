@@ -1,0 +1,50 @@
+{% extends "board/base.html" %}
+{% block title %}Бюджеты{% endblock %}
+{% block content %}
+<h1>🧮 Расчёты бюджетов</h1>
+<p class="muted">Расчёт стоимости оборудования и работ подрядчиков по объекту. Прайс-листы подрядчиков — в разделе «Подрядчики».</p>
+
+<div class="row" style="justify-content:space-between;margin-bottom:10px;">
+  <a class="btn secondary" href="{% url 'budget_contractors' %}">🏷 Подрядчики и прайс-листы</a>
+  {% if archived %}
+    <a class="btn secondary" href="{% url 'budgets_page' %}">← Активные</a>
+  {% else %}
+    <a class="btn secondary" href="?archived=1">📦 Архив</a>
+  {% endif %}
+</div>
+
+{% if not archived %}
+<h2>Новый расчёт</h2>
+<form method="post" action="{% url 'add_budget' %}" class="card">
+  {% csrf_token %}
+  <div class="row">
+    <select name="contractor_id" required style="flex:1;">
+      <option value="">Подрядчик</option>
+      {% for c in contractors %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+    <input name="title" placeholder="Название/номер объекта" required style="flex:1;">
+    <select name="branch" style="flex:1;">
+      <option value="">Филиал</option>
+      {% for code, label in branches %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+    </select>
+    <input name="store_number" placeholder="№ объекта (необязательно)" style="flex:1;">
+  </div>
+  <button type="submit" class="accent" style="margin-top:8px;">+ Создать расчёт</button>
+</form>
+{% endif %}
+
+<div class="grid">
+  {% for calc in calculations %}
+  <a class="card" style="text-decoration:none;color:inherit;display:block;" href="{% url 'budget_detail' calc.id %}">
+    <strong>{{ calc.title }}</strong>
+    <div class="muted">{{ calc.contractor_name }}{% if calc.branch %} · {{ calc.get_branch_display }}{% endif %}</div>
+    <div class="row" style="justify-content:space-between;margin-top:8px;">
+      <span class="badge badge-ok">{{ calc.total_amount|floatformat:2 }} ₽</span>
+      {% if calc.reconstruction_id %}<span class="badge badge-muted">→ реконструкция</span>{% endif %}
+    </div>
+  </a>
+  {% empty %}
+    <p class="muted">{% if archived %}В архиве пока пусто.{% else %}Расчётов пока нет — создайте первый выше.{% endif %}</p>
+  {% endfor %}
+</div>
+{% endblock %}

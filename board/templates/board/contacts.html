@@ -1,0 +1,105 @@
+{% extends "board/base.html" %}
+{% block title %}Контакты{% endblock %}
+{% block content %}
+<h1>Контакты</h1>
+<p class="muted">Все контакты со всех магазинов в одном месте, сгруппированы по филиалам.</p>
+
+<div class="row" style="gap:16px;align-items:flex-start;flex-wrap:wrap;">
+  <div class="card" style="max-width:480px;margin-bottom:20px;flex:1;min-width:280px;">
+    <h2 style="margin-top:0;">+ Контакт магазина</h2>
+    <form method="post" id="add-contact-form" action="{% url 'add_contact' 0 %}" data-url-template="{% url 'add_contact' 0 %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="contacts">
+      <div class="field">
+        <label>Магазин</label>
+        <select id="contact-store-select" required>
+          <option value="">— выбери магазин —</option>
+          {% for s in stores %}
+            <option value="{{ s.id }}">{{ s.number }} ({{ s.get_branch_display }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Имя</label><input name="name" required></div>
+      <div class="field"><label>Роль / компания</label><input name="role"></div>
+      <div class="field"><label>Телефон</label><input name="phone"></div>
+      <div class="field"><label>Telegram (без @)</label><input name="telegram"></div>
+      <div class="field"><label>MAX (username)</label><input name="max_contact"></div>
+      <button type="submit" class="accent">+ Добавить контакт</button>
+    </form>
+  </div>
+
+  <div class="card" style="max-width:480px;margin-bottom:20px;flex:1;min-width:280px;">
+    <h2 style="margin-top:0;">+ Общий контакт (филиал)</h2>
+    <p class="muted" style="margin-top:0;">Для контактов, не привязанных к конкретному магазину.</p>
+    <form method="post" action="{% url 'add_contact_no_store' %}">
+      {% csrf_token %}
+      <div class="field">
+        <label>Филиал</label>
+        <select name="branch" required>
+          <option value="">— выбери филиал —</option>
+          {% for code, label in branches %}
+            <option value="{{ code }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Имя</label><input name="name" required></div>
+      <div class="field"><label>Роль / компания</label><input name="role"></div>
+      <div class="field"><label>Телефон</label><input name="phone"></div>
+      <div class="field"><label>Telegram (без @)</label><input name="telegram"></div>
+      <div class="field"><label>MAX (username)</label><input name="max_contact"></div>
+      <button type="submit" class="accent">+ Добавить контакт</button>
+    </form>
+  </div>
+</div>
+
+{% for group in groups %}
+  {% if group.contacts or group.code == active_branch %}
+  <details id="branch-{{ group.code }}" {% if not active_branch or group.code == active_branch %}open{% endif %} style="margin-bottom:16px;">
+    <summary style="font-size:16px;font-weight:600;cursor:pointer;">{{ group.label }} ({{ group.contacts|length }})</summary>
+    <div class="grid" style="margin-top:10px;">
+      {% for c in group.contacts %}
+      <div class="contact-card">
+        <div class="row" style="justify-content:space-between;">
+          <div class="name">{{ c.name }}</div>
+          <form method="post" action="{% url 'delete_contact' c.id %}" onsubmit="return confirm('Удалить контакт?')">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="contacts">
+            <button type="submit" class="secondary" style="padding:2px 8px;font-size:11px;">✕</button>
+          </form>
+        </div>
+        {% if c.role %}<div class="muted">{{ c.role }}</div>{% endif %}
+        <div class="muted" style="margin:4px 0;">
+          {% if c.store %}
+            <a class="plain" href="{% url 'store_detail' c.store_id %}">{{ c.store.number }} ({{ c.store.get_branch_display }})</a>
+          {% else %}
+            <div class="muted">{{ c.get_branch_display }}</div>
+          {% endif %}
+        </div>
+        {% if c.phone %}<div>📞 {{ c.phone }}</div>{% endif %}
+        <div class="row" style="margin-top:8px;">
+          {% if c.telegram %}<a class="btn telegram" href="{{ c.telegram_url }}" target="_blank">✈️ Telegram</a>{% endif %}
+          {% if c.max_contact %}<a class="btn maxbtn" href="{{ c.max_url }}" target="_blank">💬 MAX</a>{% endif %}
+        </div>
+      </div>
+      {% empty %}
+        <p class="muted">Контактов в этом филиале пока нет.</p>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+{% empty %}
+  <p class="muted">Контактов пока нет — добавь первый в форме выше.</p>
+{% endfor %}
+
+<script>
+document.getElementById('add-contact-form').addEventListener('submit', function(e) {
+  var storeId = document.getElementById('contact-store-select').value;
+  if (!storeId) {
+    e.preventDefault();
+    alert('Выбери магазин');
+    return;
+  }
+  this.action = this.dataset.urlTemplate.replace('0', storeId);
+});
+</script>
+{% endblock %}
