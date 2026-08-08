@@ -793,22 +793,22 @@ class StoreDeviceIPConfig(models.Model):
 
 ROUTER_IP_ANCHORS = {
     "szf": {
-        "base_number": 2346,
-        "provider2_ip": "172.19.61.70",
-        "tunnel_ip": "10.251.56.74",
-        "network": "10.98.172.128",
+        "base_number": 1000,
+        "provider2_ip": "10.0.1.10",
+        "tunnel_ip": "10.0.2.10",
+        "network": "10.0.3.0",
     },
     "uf": {
-        "base_number": 3232,
-        "provider2_ip": "172.19.62.254",
-        "tunnel_ip": "10.251.64.91",
-        "network": "10.96.115.128",
+        "base_number": 2000,
+        "provider2_ip": "10.0.1.50",
+        "tunnel_ip": "10.0.2.50",
+        "network": "10.0.4.0",
     },
     "pf": {
-        "base_number": 4117,
-        "provider2_ip": "172.19.64.34",
-        "tunnel_ip": "10.251.49.161",
-        "network": "10.16.75.0",
+        "base_number": 3000,
+        "provider2_ip": "10.0.1.90",
+        "tunnel_ip": "10.0.2.90",
+        "network": "10.0.5.0",
     },
     # cf (Филиал 4) намеренно отсутствует — данных по нему нет, автозаполнение не работает
 }
