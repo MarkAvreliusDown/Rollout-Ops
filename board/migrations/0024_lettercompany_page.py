@@ -9,7 +9,7 @@ DEFAULT_COLUMNS = [
     {"name": "Регион"},
 ]
 
-ACCOUNT_TABS = ["РедМул", "1771", "ОТРС", "Плеер", "СБП"]
+ACCOUNT_TABS = ["Система 1", "Система 2", "Система 3", "Плеер", "СБП"]
 
 
 def create_account_tabs(apps, schema_editor):
