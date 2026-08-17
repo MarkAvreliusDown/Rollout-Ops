@@ -59,22 +59,22 @@
     папок не прерывает копирование остальных — пишется в консоль и в лог,
     и цикл продолжается.
 
-Письма от Сбербанка о закрытии обращения по эквайрингу (отдельная ветка,
-без ИИ):
-    Если письмо от отправителя, чей email/имя содержит "sber"/"sberbank",
-    и в тексте письма встречается фраза "Ваше обращение в службу поддержки
-    эквайринга выполнено." — создаётся Notification (уведомление для
-    колокольчика на сайте), Ollama при этом не вызывается. Письмо всё
-    равно помечается обработанным.
+Письма от банка-эквайера о закрытии обращения в поддержку (отдельная
+ветка, без ИИ):
+    Если письмо от отправителя, чей email/имя совпадает с шаблоном
+    ACQUIRER_SENDER_RE (настраивается под конкретного банка-эквайера),
+    и в тексте письма встречается фраза-маркер закрытия обращения — создаётся
+    Notification (уведомление для колокольчика на сайте), Ollama при этом не
+    вызывается. Письмо всё равно помечается обработанным.
 
-Письма от provider2.ru о монтаже нового канала связи (отдельная ветка,
-без ИИ):
-    Если письмо от отправителя с адресом на домене @provider2.ru (конкретный
-    адрес технической поддержки у них плавающий — noc@, install@ и т.п.,
-    поэтому проверяется домен, а не один фиксированный адрес) и тема письма
-    содержит "Смонтирован новый канал связи" — создаётся Notification
-    (уведомление для колокольчика на сайте), Ollama при этом не вызывается.
-    Письмо всё равно помечается обработанным.
+Письма от интернет-провайдера о монтаже нового канала связи (отдельная
+ветка, без ИИ):
+    Если письмо от отправителя с адресом на домене провайдера (конкретный
+    адрес технической поддержки у провайдеров обычно плавающий — разные
+    отправители с одного домена, поэтому проверяется домен, а не один
+    фиксированный адрес) и тема письма содержит фразу-маркер монтажа канала
+    — создаётся Notification (уведомление для колокольчика на сайте), Ollama
+    при этом не вызывается. Письмо всё равно помечается обработанным.
 
 Всё работает локально: единственное обращение "наружу" — сам запрос к
 почтовому серверу компании (это неизбежно, иначе почту не прочитать).
@@ -133,21 +133,23 @@ KPP_TARGET_DIRS = [
 
 KPP_WORD_RE = re.compile(r"\bкпп\b", re.IGNORECASE)
 
-# Письма от Сбербанка о закрытии обращения по эквайрингу — отдельная ветка
-# без Ollama, создаёт Notification для колокольчика на сайте.
-SBER_SUPPORT_DONE_TEXT = "Ваше обращение в службу поддержки эквайринга выполнено."
-SBER_SENDER_RE = re.compile(r"sberbank|sber", re.IGNORECASE)
-
-# Письма от provider2.ru о монтаже нового канала связи — тоже отдельная
+# Письма от банка-эквайера о закрытии обращения в поддержку — отдельная
 # ветка без Ollama, создаёт Notification для колокольчика на сайте.
-# Проверяется домен отправителя, не конкретный адрес — техподдержка provider2
-# пишет с разных адресов (noc@provider2.ru, install@provider2.ru и т.п.).
-Provider2_SENDER_DOMAIN = "@provider2.ru"
-# Без первой буквы "С": реальные письма provider2.ru приходят с латинской "C"
-# (U+0043) вместо кириллической "С" (U+0421) в начале темы — визуально
-# неотличимо, но ломает точное совпадение подстроки. "монтирован..." —
-# подстрока и "Смонтирован...", и "Cмонтирован..." (с латинской C).
-Provider2_CHANNEL_SUBJECT = "монтирован новый канал связи"
+# Значения ниже — пример, подставь реальные под своего банка-эквайера.
+ACQUIRER_SUPPORT_DONE_TEXT = "Ваше обращение в службу поддержки эквайринга выполнено."
+ACQUIRER_SENDER_RE = re.compile(r"acquirer-example", re.IGNORECASE)
+
+# Письма от интернет-провайдера о монтаже нового канала связи — тоже
+# отдельная ветка без Ollama, создаёт Notification для колокольчика на сайте.
+# Проверяется домен отправителя, не конкретный адрес — техподдержка обычно
+# пишет с разных адресов одного домена. Значения ниже — пример, подставь
+# домен и тему реального провайдера.
+ISP_SENDER_DOMAIN = "@isp-example.ru"
+# Некоторые письма могут приходить с визуально неотличимой латинской буквой
+# вместо кириллической в начале темы (например латинская "C" вместо
+# кириллической "С") — это ломает точное совпадение подстроки, поэтому
+# сравнение ниже сделано без первой буквы темы-маркера.
+ISP_CHANNEL_SUBJECT = "монтирован новый канал связи"
 
 # Сколько дней письма проверяем за один проход (не гоняем весь ящик).
 EMAIL_LOOKBACK_DAYS = 14
@@ -181,33 +183,33 @@ def _contains_kpp(subject, body):
     return bool(KPP_WORD_RE.search(haystack))
 
 
-def _is_sber_sender(msg):
+def _is_acquirer_sender(msg):
     """msg.sender — объект exchangelib Mailbox (email_address/name), может
     быть None у некоторых писем."""
     sender = getattr(msg, "sender", None)
     if sender is None:
         return False
     email_address = getattr(sender, "email_address", None) or ""
-    if SBER_SENDER_RE.search(email_address):
+    if ACQUIRER_SENDER_RE.search(email_address):
         return True
     name = getattr(sender, "name", None) or ""
-    return bool(SBER_SENDER_RE.search(name))
+    return bool(ACQUIRER_SENDER_RE.search(name))
 
 
-def _contains_sber_support_done(subject, body):
-    return SBER_SUPPORT_DONE_TEXT in body
+def _contains_acquirer_support_done(subject, body):
+    return ACQUIRER_SUPPORT_DONE_TEXT in body
 
 
-def _is_provider2_sender(msg):
+def _is_isp_sender(msg):
     sender = getattr(msg, "sender", None)
     if sender is None:
         return False
     email_address = getattr(sender, "email_address", None) or ""
-    return email_address.strip().lower().endswith(Provider2_SENDER_DOMAIN)
+    return email_address.strip().lower().endswith(ISP_SENDER_DOMAIN)
 
 
-def _contains_provider2_channel_subject(subject):
-    return Provider2_CHANNEL_SUBJECT.lower() in (subject or "").lower()
+def _contains_isp_channel_subject(subject):
+    return ISP_CHANNEL_SUBJECT.lower() in (subject or "").lower()
 
 
 def _safe_attachment_name(name):
@@ -387,17 +389,17 @@ def _process_message(msg):
         _mark_processed(message_id)
         return True
 
-    # Письма от Сбербанка о закрытии обращения по эквайрингу — отдельная
+    # Письма от банка-эквайера о закрытии обращения в поддержку — отдельная
     # независимая ветка: без Ollama, создаёт Notification для колокольчика.
-    if _is_sber_sender(msg) and _contains_sber_support_done(subject, body):
+    if _is_acquirer_sender(msg) and _contains_acquirer_support_done(subject, body):
         logger.info("Почтовый ассистент: обращение по эквайрингу закрыто — %s", subject[:100])
         Notification.objects.create(text="Обращение в поддержку эквайринга выполнено", source="email")
         _mark_processed(message_id)
         return True
 
-    # Письма от provider2.ru о монтаже нового канала связи — отдельная
+    # Письма от интернет-провайдера о монтаже нового канала связи — отдельная
     # независимая ветка: без Ollama, создаёт Notification для колокольчика.
-    if _is_provider2_sender(msg) and _contains_provider2_channel_subject(subject):
+    if _is_isp_sender(msg) and _contains_isp_channel_subject(subject):
         logger.info("Почтовый ассистент: смонтирован новый канал связи — %s", subject[:100])
         Notification.objects.create(text="Смонтирован новый канал связи", source="email")
         _mark_processed(message_id)

@@ -154,7 +154,7 @@ const AUTOFILL_BASE_OPTIONS = [
     ['columns_count_and_type', 'Кол-во колонок + тип (общей ячейкой)'],
     ['has_meat_scale', 'Весы «мясо» (да/нет)'],
     ['access_points_count', 'Кол-во точек доступа'],
-    ['wan_ip2_reserve', 'Внешние IP резервного канала (Provider2)'],
+    ['wan_ip2_reserve', 'Внешние IP резервного канала (провайдер 2)'],
 ];
 let OPENING_TASK_TITLES = [];
 try {
@@ -338,7 +338,7 @@ function addCompany() {
     const key = 'c_' + Date.now();
     state.companies[key] = {
         name, page: currentPage,
-        header: currentPage === 'schedules' ? 'ПФ' : '',
+        header: currentPage === 'schedules' ? 'Филиал 3' : '',
         subject: (currentPage === 'schedules' ? 'График работ — ' : 'Создание учёток — ') + name,
         recipients: '', columns, rows: [columns.map(() => '')],
     };

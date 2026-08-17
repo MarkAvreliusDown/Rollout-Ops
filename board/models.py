@@ -875,8 +875,9 @@ ROUTER_IP_ANCHORS = {
 
 
 def compute_router_config_for_store(store):
-    """Вычисляет автозначения полей конфига роутера (Provider2/LAN, без ZET) для
-    нового магазина по номеру, если для филиала есть якорь в ROUTER_IP_ANCHORS.
+    """Вычисляет автозначения полей конфига роутера (провайдер 2/LAN, без
+    провайдера 1) для нового магазина по номеру, если для филиала есть якорь
+    в ROUTER_IP_ANCHORS.
     Возвращает dict или None, если якоря нет или номер магазина не целое число."""
     anchor = ROUTER_IP_ANCHORS.get(store.branch)
     if not anchor:

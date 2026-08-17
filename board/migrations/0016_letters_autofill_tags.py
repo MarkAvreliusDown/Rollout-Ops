@@ -1,6 +1,7 @@
-# Данные-миграция: помечает существующие столбцы писем (Provider2/Servplus/НВ) тегами
-# автоподстановки и заводит новые вкладки SBER/Подрядчик 1/Подрядчик 2/Оборудование —
-# по описанию, которое дал пользователь. Существующие строки (rows) не трогает.
+# Данные-миграция: помечает существующие столбцы писем (провайдер 2/Servplus/НВ)
+# тегами автоподстановки и заводит новые вкладки Банк-эквайер/Подрядчик 1/
+# Подрядчик 2/Оборудование — по описанию, которое дал пользователь. Существующие
+# строки (rows) не трогает.
 
 from django.db import migrations
 
@@ -105,11 +106,11 @@ def tag_and_seed(apps, schema_editor):
         if LetterCompany.objects.filter(key=key).exists():
             return
         LetterCompany.objects.create(
-            key=key, name=name, order=order, header="ПФ", subject=f"График работ — {name}",
+            key=key, name=name, order=order, header="Филиал 3", subject=f"График работ — {name}",
             recipients="", columns=columns, rows=[], is_store_contractor=True,
         )
 
-    create_if_missing("sber", "SBER", SBER_COLUMNS, 100)
+    create_if_missing("sber", "Банк-эквайер", SBER_COLUMNS, 100)
     create_if_missing("soyuz76", "Подрядчик 1", NV_LIKE_COLUMNS, 101)
     create_if_missing("printgrad", "Подрядчик 2", NV_LIKE_COLUMNS, 102)
     create_if_missing("oborudovanie", "Оборудование", OBORUDOVANIE_COLUMNS, 103)
