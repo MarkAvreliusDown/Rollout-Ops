@@ -3,7 +3,8 @@ from django.contrib import admin
 
 from .models import (
     Article, ArticleFile, ArticleImage, Bonus, BudgetCalculation, BudgetSettings, ChecklistItem,
-    Contact, Contractor, KbCategory, KbCategoryFile, LetterCompany, Note, NoteFile, ReconstructionDocument, ReconstructionRecord,
+    Contact, Contractor, KbCategory, KbCategoryFile, LetterCompany, Note, Notification, NoteFile,
+    ReconstructionDocument, ReconstructionRecord,
     Report, ReportPhoto, SalarySettings, Store, StoreLog, StoreLogFile, Task,
 )
 
@@ -31,8 +32,8 @@ class NoteFileInline(admin.TabularInline):
 
 @admin.register(Store)
 class StoreAdmin(admin.ModelAdmin):
-    list_display = ("number", "branch", "store_type", "region", "created_at")
-    list_filter = ("branch", "store_type")
+    list_display = ("number", "branch", "store_type", "reconstruction_kind", "region", "created_at")
+    list_filter = ("branch", "store_type", "reconstruction_kind")
     search_fields = ("number", "address", "region")
     inlines = [ContactInline, TaskInline]
 
@@ -154,3 +155,9 @@ class BudgetCalculationAdmin(admin.ModelAdmin):
 @admin.register(BudgetSettings)
 class BudgetSettingsAdmin(admin.ModelAdmin):
     list_display = ("vat_rate",)
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("text", "source", "is_read", "created_at")
+    list_filter = ("source", "is_read")

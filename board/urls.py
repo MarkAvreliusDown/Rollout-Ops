@@ -9,6 +9,8 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("weekly-summary/", views.weekly_summary, name="weekly_summary"),
     path("search/live/", views.global_search, name="global_search"),
+    path("notifications/check/", views.notifications_check, name="notifications_check"),
+    path("notifications/mark-read/", views.notifications_mark_read, name="notifications_mark_read"),
     path("letters/", views.letters, name="letters"),
     path("letters/save/", views.letters_save, name="letters_save"),
     path("branch/<str:branch>/<str:store_type>/", views.branch_view, name="branch"),
@@ -107,6 +109,9 @@ urlpatterns = [
 
     path("store/<int:store_id>/device-ips/recalc/", views.recalc_device_ips, name="recalc_device_ips"),
     path("store/<int:store_id>/device-ips/save/", views.save_device_ips, name="save_device_ips"),
+
+    path("store/<int:store_id>/ascn/regenerate/", views.regenerate_ascn_rows, name="regenerate_ascn_rows"),
+    path("store/<int:store_id>/ascn/save/", views.save_ascn_rows, name="save_ascn_rows"),
 ]
 
 

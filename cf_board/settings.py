@@ -91,15 +91,32 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # Если оставить пустым в .env — сайт останется полностью открытым, как раньше.
 SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "")
 
+# Почтовый ассистент (email_watcher) — логин/пароль обычной учётки Exchange/Office 365,
+# без OAuth. EMAIL_SERVER можно оставить пустым — тогда используется autodiscover.
+EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS", "")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
+EMAIL_USERNAME = os.environ.get("EMAIL_USERNAME", "")
+EMAIL_SERVER = os.environ.get("EMAIL_SERVER", "")
+EMAIL_POLL_INTERVAL = int(os.environ.get("EMAIL_POLL_INTERVAL", "300"))
+
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)
 
-# Сайт (start_server.bat) и telegram-бот (start_bot.bat) — два разных процесса,
-# которые живут постоянно и запускаются/перезапускаются независимо друг от друга.
-# Если оба пишут в один файл ai.log, то ровно в полночь при архивации файла один
-# процесс держит его открытым, пока второй пытается переименовать — Windows это
-# запрещает (PermissionError). Поэтому у бота — свой отдельный файл лога.
-LOG_FILENAME = "bot.log" if "telegram_bot" in sys.argv else "ai.log"
+# Сайт (start_server.bat), telegram-бот (start_bot.bat), голосовой ассистент
+# (start_voice_assistant.bat) и почтовый ассистент (start_email_watcher.bat) —
+# независимые долгоживущие процессы, запускаются/перезапускаются по отдельности.
+# Если несколько из них пишут в один файл ai.log, то ровно в полночь при
+# архивации файла один процесс держит его открытым, пока другой пытается
+# переименовать — Windows это запрещает (PermissionError).
+# Поэтому у бота, голосового и почтового ассистента — свои отдельные файлы лога.
+if "telegram_bot" in sys.argv:
+    LOG_FILENAME = "bot.log"
+elif "voice_assistant" in sys.argv:
+    LOG_FILENAME = "voice_assistant.log"
+elif "email_watcher" in sys.argv:
+    LOG_FILENAME = "email_watcher.log"
+else:
+    LOG_FILENAME = "ai.log"
 
 LOGGING = {
     "version": 1,

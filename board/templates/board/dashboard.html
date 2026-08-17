@@ -195,16 +195,16 @@ async function sendTelegramToday() {
 </div>
 <div id="tg-status" class="muted" style="margin-bottom:14px;"></div>
 
-<details class="calendar-widget">
+<details class="calendar-widget" id="calendar-anchor"{% if calendar_keep_open %} open{% endif %}>
   <summary>📅 Календарь</summary>
   <div class="calendar-popup">
     <div class="calendar-header">
-      <a class="calendar-nav-btn" href="?year={{ calendar_prev_year }}&month={{ calendar_prev_month }}" aria-label="Предыдущий месяц">‹</a>
+      <a class="calendar-nav-btn" href="?year={{ calendar_prev_year }}&month={{ calendar_prev_month }}#calendar-anchor" aria-label="Предыдущий месяц">‹</a>
       <div class="calendar-title">
         <span>{{ calendar_month_name }} {{ calendar_year }}</span>
         {% if not calendar_is_current_month %}<a class="calendar-title-today-link" href="{% url 'dashboard' %}">сегодня</a>{% endif %}
       </div>
-      <a class="calendar-nav-btn" href="?year={{ calendar_next_year }}&month={{ calendar_next_month }}" aria-label="Следующий месяц">›</a>
+      <a class="calendar-nav-btn" href="?year={{ calendar_next_year }}&month={{ calendar_next_month }}#calendar-anchor" aria-label="Следующий месяц">›</a>
     </div>
 
     <div class="calendar-grid calendar-grid-head">

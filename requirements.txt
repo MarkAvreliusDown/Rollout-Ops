@@ -6,3 +6,8 @@ python-docx
 beautifulsoup4
 pypdf
 faster-whisper>=1.0,<2.0
+sounddevice
+numpy
+torch
+omegaconf
+exchangelib

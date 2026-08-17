@@ -2,6 +2,7 @@
 import calendar
 import copy
 import datetime
+import ipaddress
 import json
 import logging
 import re
@@ -18,13 +19,15 @@ from django.views.decorators.http import require_POST
 
 from .icons import VALID_COLORS, VALID_ICONS
 from .models import (
-    ANCHOR_CHOICES, AREA_FORMAT_CHOICES, BRANCH_CHOICES, DEVICE_IP_LABELS, STORE_KANBAN_STATUS_CHOICES,
+    ANCHOR_CHOICES, AREA_FORMAT_CHOICES, BRANCH_CHOICES, COMPANY_INN, CONTRACTOR_CHOICES, DEVICE_DNS1, DEVICE_DNS2,
+    DEVICE_IP_LABELS, DEVICE_MASK, KSO_NUMBER_BASE, STORE_KANBAN_STATUS_CHOICES,
     STORE_TYPE_CHOICES, Article,
     ArticleFile, ArticleImage, Bonus, BudgetCalculation, BudgetSettings, ChecklistItem, Contact, Contractor,
-    KbCategory, KbCategoryFile, LetterCompany, Note, NoteFile, Problem, ReconstructionDocument, ReconstructionRecord, Report,
-    ReportPhoto, RouterConfigTemplate, SalarySettings, Store, StoreDeviceIPConfig, StoreLog, StoreLogFile,
+    KbCategory, KbCategoryFile, LetterCompany, Note, Notification, NoteFile, Problem, ReconstructionDocument, ReconstructionRecord, Report,
+    ReportPhoto, RouterConfigTemplate, SalarySettings, Store, StoreCashRegister, StoreDeviceIPConfig, StoreLog, StoreLogFile,
     StoreRouterConfig, Task,
-    compute_budget_totals, compute_device_ips_for_network, compute_router_config_for_store, sync_new_store_to_letters,
+    compute_budget_totals, compute_device_ips_for_network, compute_kso_ips, compute_router_config_for_store,
+    sync_new_store_to_letters,
 )
 
 MONTH_NAMES_RU = [
@@ -154,6 +157,26 @@ CLOSING_TASK_TEMPLATE = [
     "Интернет демонтаж Z",
 ]
 
+# (заголовок,) — обязательные задачи реконструкции вида "Полная", без авторасчёта дат
+RECONSTRUCTION_FULL_TASK_TEMPLATE = [
+    "Демонтаж частичный",
+    "Демонтаж основной",
+    "Рассылка графика работ",
+    "Заказ оборудования",
+    "Заказ пинпадов",
+    "Письмо для восстановления канала",
+    "Отправка оборудования на магазин",
+    "Написать письмо для отправки",
+    "СКС",
+    "ПНР",
+    "ВПК-2",
+    "ПНР КСО",
+    "Выезд для проверки",
+]
+
+# (заголовок,) — обязательные задачи доп. работ вида "Установка доп. КСО", без авторасчёта дат
+EXTRA_KSO_TASK_TEMPLATE = ["СКС", "ПНР", "Доставка Пинпадов Сбер"]
+
 
 def recalc_dependents(store, anchor_key, anchor_date):
     """Пересчитывает даты всех задач магазина, привязанных к этой опорной дате."""
@@ -222,6 +245,25 @@ def global_search(request):
         "tasks": tasks_result,
         "notes": notes_result,
     })
+
+
+def notifications_check(request):
+    unread_count = Notification.objects.filter(is_read=False).count()
+    items = [
+        {
+            "id": n.id,
+            "text": n.text,
+            "created_at": n.created_at.isoformat(),
+        }
+        for n in Notification.objects.all()[:20]
+    ]
+    return JsonResponse({"unread_count": unread_count, "items": items})
+
+
+@require_POST
+def notifications_mark_read(request):
+    Notification.objects.filter(is_read=False).update(is_read=True)
+    return JsonResponse({"ok": True})
 
 
 def dashboard(request):
@@ -378,6 +420,7 @@ def dashboard(request):
         "calendar_next_year": next_month_date.year,
         "calendar_next_month": next_month_date.month,
         "calendar_is_current_month": (cal_year, cal_month) == (today.year, today.month),
+        "calendar_keep_open": bool(request.GET.get("year") or request.GET.get("month")),
     })
 
 
@@ -470,17 +513,34 @@ def branch_view(request, branch, store_type):
                 store.columns_type = request.POST.get("columns_type", "").strip()
                 store.has_meat_scale = request.POST.get("has_meat_scale") == "on"
                 store.access_points_count = request.POST.get("access_points_count", "").strip()
+                store.license_number = request.POST.get("license_number", "").strip()
+                store.kpp = request.POST.get("kpp", "").strip()
+                store.cluster = request.POST.get("cluster", "").strip()
+                store.ibp_count = request.POST.get("ibp_count", "").strip()
+                store.provider = request.POST.get("provider", "").strip()
                 store.save()
+                # router_values считаем до записи строки в письма, чтобы столбец
+                # "Внешние IP резервного канала" (autofill=wan_ip2_reserve) заполнился сразу.
+                router_values = compute_router_config_for_store(store)
                 # Строку в письмах создаём до простановки опорных дат, чтобы дозаполнение
                 # дат ниже нашло куда писать (иначе строка ещё не существует).
-                sync_new_store_to_letters(store)
+                sync_new_store_to_letters(store, router_values)
 
-                router_values = compute_router_config_for_store(store)
                 if router_values:
                     StoreRouterConfig.objects.update_or_create(store=store, defaults={"values": router_values})
                     device_values = compute_device_ips_for_network(router_values.get("NETWORK"))
                     if device_values:
                         StoreDeviceIPConfig.objects.update_or_create(store=store, defaults={"values": device_values})
+
+                try:
+                    kso_total = int(store.kso_count)
+                except (TypeError, ValueError):
+                    kso_total = 0
+                if kso_total > 0:
+                    StoreCashRegister.objects.bulk_create([
+                        StoreCashRegister(store=store, order=i, number=str(KSO_NUMBER_BASE + i))
+                        for i in range(kso_total)
+                    ])
 
                 for anchor_key, field_name in [("opening", "opening_date"), ("vpk2", "vpk2_date")]:
                     date_str = request.POST.get(field_name, "").strip()
@@ -501,6 +561,22 @@ def branch_view(request, branch, store_type):
                     Task(store=store, title=title, order=i)
                     for i, title in enumerate(CLOSING_TASK_TEMPLATE)
                 ])
+            elif store_type == "reconstruction":
+                store.reconstruction_kind = request.POST.get("reconstruction_kind", "").strip()
+                store.save(update_fields=["reconstruction_kind"])
+                if store.reconstruction_kind == "full":
+                    Task.objects.bulk_create([
+                        Task(store=store, title=title, order=i)
+                        for i, title in enumerate(RECONSTRUCTION_FULL_TASK_TEMPLATE)
+                    ])
+            elif store_type == "extra":
+                store.extra_kind = request.POST.get("extra_kind", "").strip()
+                store.save(update_fields=["extra_kind"])
+                if store.extra_kind == "extra_kso":
+                    Task.objects.bulk_create([
+                        Task(store=store, title=title, order=i)
+                        for i, title in enumerate(EXTRA_KSO_TASK_TEMPLATE)
+                    ])
         return redirect("branch", branch=branch, store_type=store_type)
 
     show_archived = request.GET.get("archived") == "1"
@@ -518,7 +594,161 @@ def branch_view(request, branch, store_type):
         "branches": BRANCH_CHOICES,
         "letter_contractors": LetterCompany.objects.filter(is_store_contractor=True) if store_type == "opening" else None,
         "area_format_choices": AREA_FORMAT_CHOICES,
+        "contact_choices": CONTRACTOR_CHOICES,
     })
+
+
+def _excel_date(value):
+    return value.strftime("%d.%m.%Y") if value else ""
+
+
+def _excel_task_due(tasks_by_title, title):
+    task = tasks_by_title.get(title)
+    return _excel_date(task.due_date) if task else ""
+
+
+def _lan_mask_bits(mask_str):
+    """255.255.255.128 -> 25. Возвращает None, если маска пустая/не парсится."""
+    if not mask_str:
+        return None
+    try:
+        return ipaddress.IPv4Network(f"0.0.0.0/{mask_str}").prefixlen
+    except ValueError:
+        return None
+
+
+def _cell(value):
+    # Заменяем переносы строк и табуляции на пробел — иначе многострочные
+    # поля (например "Примечания") при вставке TSV в Excel сдвигают
+    # колонки или создают лишнюю строку.
+    return " ".join(str(value or "").split())
+
+
+def _build_store_excel_row(store):
+    """Собирает строку из 39 значений для вставки в рабочий Excel-файл пользователя
+    (кнопка "Скопировать строку для Excel" на карточке магазина) — порядок колонок
+    A-AM жёстко фиксирован под шаблон пользователя, см. план функции."""
+    top_tasks = store.tasks.filter(parent__isnull=True)
+    tasks_by_title = {t.title: t for t in top_tasks}
+    tasks_by_anchor = {t.anchor_key: t for t in top_tasks if t.anchor_key}
+
+    router_config = StoreRouterConfig.objects.filter(store=store).first()
+    values = router_config.values if router_config else {}
+
+    network = values.get("NETWORK", "")
+    lan_mask_bits = _lan_mask_bits(values.get("LANMASK"))
+    if network and lan_mask_bits is not None:
+        internal_ips = f"{network}/{lan_mask_bits}"
+    else:
+        internal_ips = network
+
+    wanip2 = values.get("WANIP2", "")
+    wanmask2 = values.get("WANMASK2", "")
+    wangw2 = values.get("WANGW2", "")
+    if wanip2:
+        parts = [wanip2]
+        if wanmask2:
+            parts[0] = f"{wanip2}/{wanmask2}"
+        if wangw2:
+            external_ips2 = f"{parts[0]}, шлюз {wangw2}"
+        else:
+            external_ips2 = parts[0]
+    else:
+        external_ips2 = ""
+
+    opening_task = tasks_by_anchor.get("opening")
+    vpk2_task = tasks_by_anchor.get("vpk2")
+
+    return [_cell(v) for v in [
+        "",  # A №п/п
+        store.get_branch_display(),  # B Филиал
+        store.number,  # C № объекта
+        store.license_number,  # D Лицензия для касс
+        store.kpp,  # E КПП
+        store.address,  # F Адрес
+        "",  # G Дата выхода строителей
+        store.region,  # H Регион
+        store.cluster,  # I Кластер
+        store.cash_count,  # J Кол-во касс
+        store.kso_count,  # K Кол-во КСО
+        store.ibp_count,  # L Кол-во ИБП
+        store.access_points_count,  # M Кол-во ТД WiFi
+        "да" if store.has_meat_scale else "нет",  # N Кол-во весов с чекопечатью
+        store.area_format,  # O Формат по площади
+        store.columns_count,  # P Кол-во колонок
+        store.columns_type,  # Q Тип колонок
+        values.get("TUNIP", ""),  # R TUNIP
+        internal_ips,  # S Внутренние IP адреса
+        _excel_task_due(tasks_by_title, "Основной канал"),  # T Дата монтажа канала связи
+        values.get("WANIP", ""),  # U Внешние IP адреса
+        store.provider,  # V Провайдер
+        values.get("TUNIP2", ""),  # W Туннельные IP резервного канала
+        _excel_task_due(tasks_by_title, "Резервный канал"),  # X Дата монтажа резервного канала
+        external_ips2,  # Y Внешние IP резервного канала
+        _excel_task_due(tasks_by_title, "Отправка оборудования"),  # Z Дата отправки оборудования
+        _excel_task_due(tasks_by_title, "СКС"),  # AA Дата СКС
+        _excel_task_due(tasks_by_title, "ПНР"),  # AB Дата ПНР
+        _excel_task_due(tasks_by_title, "Монтаж тумб"),  # AC Монтаж тумб для КСО
+        _excel_task_due(tasks_by_title, "ПНР КСО"),  # AD ПНР КСО
+        _excel_task_due(tasks_by_title, "Пинпады"),  # AE Дата монтажа пин-падов
+        _excel_date(vpk2_task.due_date) if vpk2_task else "",  # AF Дата ВПК-2
+        _excel_task_due(tasks_by_title, "Проверка перед открытием"),  # AG Дата проверки по чек-листам
+        _excel_date(opening_task.due_date) if opening_task else "",  # AH Дата открытия
+        store.notes,  # AI Примечания
+        store.contact,  # AJ Подрядчик СКС
+        store.contact,  # AK Подрядчик ПНР
+        store.contact,  # AL Подрядчик КТО
+        "",  # AM Дата закрытия
+    ]]
+
+
+def _build_ascn_rows(store):
+    """Собирает строки (по одной на каждую кассу магазина) из 19 значений A-S
+    для вставки в таблицу АСЦН (кнопка "Скопировать строки для АСЦН" на
+    карточке магазина)."""
+    router_config = StoreRouterConfig.objects.filter(store=store).first()
+    network = router_config.values.get("NETWORK", "") if router_config else ""
+
+    device_config = StoreDeviceIPConfig.objects.filter(store=store).first()
+    device_values = device_config.values if device_config else {}
+    dev_pc1 = device_values.get("DEV_PC1", "")
+    dev_pc2 = device_values.get("DEV_PC2", "")
+    device_ip = device_values.get("DEV_SERVER_KSO", "")
+
+    utm_addr = f"http://{dev_pc1}:8080/xml" if dev_pc1 else ""
+    setmark_addr = f"http://{dev_pc2}:9000" if dev_pc2 else ""
+    lmch_addr = f"{dev_pc1}:5995" if dev_pc1 else ""
+    mask_dns = f"maska {DEVICE_MASK} DNS1 {DEVICE_DNS1} DNS 2 {DEVICE_DNS2}"
+
+    rows = []
+    for reg in store.cash_registers.all():
+        kso_ips = compute_kso_ips(network, reg.order)
+        if kso_ips:
+            kso_ips_str = f"IP СБ {kso_ips['ip_sb']}  IP ФР {kso_ips['ip_fr']} GW {kso_ips['gw']}"
+        else:
+            kso_ips_str = ""
+        rows.append([_cell(v) for v in [
+            store.number,  # A № объекта
+            store.get_branch_display(),  # B Филиал
+            store.region,  # C Регион
+            store.locality,  # D Населённый пункт
+            store.address,  # E Адрес
+            device_ip,  # F IP модуля интеграции
+            COMPANY_INN,  # G ИНН
+            store.kpp,  # H КПП
+            utm_addr,  # I Адрес УТМ
+            setmark_addr,  # J Адрес setMark
+            lmch_addr,  # K ЛМЧЗ
+            reg.number,  # L Номер КСО
+            f"КСО {reg.number}" if reg.number else "",  # M Наименование КСО
+            kso_ips_str,  # N IP СБ/ФР/GW
+            mask_dns,  # O Маска и DNS
+            reg.loymax_data,  # P LOYMAX posid/login/password
+            store.fsrar_id,  # Q FSRAR_ID
+            reg.sbp_terminal,  # R Номер терминала СБП
+            reg.sbp_link,  # S Кассовая ссылка СБП
+        ]])
+    return rows
 
 
 def store_detail(request, store_id):
@@ -547,6 +777,28 @@ def store_detail(request, store_id):
         {"key": key, "label": label, "value": device_values.get(key, "")}
         for key, label in DEVICE_IP_LABELS.items()
     ]
+    excel_row_tsv = "\t".join(_build_store_excel_row(store))
+
+    ascn_registers = list(store.cash_registers.all())
+    ascn_network = router_config.values.get("NETWORK", "") if router_config else ""
+    dev_pc1 = device_values.get("DEV_PC1", "")
+    dev_pc2 = device_values.get("DEV_PC2", "")
+    ascn_device_ip = device_values.get("DEV_SERVER_KSO", "")
+    ascn_utm_addr = f"http://{dev_pc1}:8080/xml" if dev_pc1 else ""
+    ascn_setmark_addr = f"http://{dev_pc2}:9000" if dev_pc2 else ""
+    ascn_lmch_addr = f"{dev_pc1}:5995" if dev_pc1 else ""
+    ascn_rows_display = []
+    for reg in ascn_registers:
+        kso_ips = compute_kso_ips(ascn_network, reg.order)
+        ascn_rows_display.append({
+            "obj": reg,
+            "kso_name": f"КСО {reg.number}" if reg.number else "",
+            "ip_sb": kso_ips["ip_sb"] if kso_ips else "",
+            "ip_fr": kso_ips["ip_fr"] if kso_ips else "",
+            "gw": kso_ips["gw"] if kso_ips else "",
+        })
+    ascn_rows_tsv = "\n".join("\t".join(row) for row in _build_ascn_rows(store))
+
     return render(request, "board/store_detail.html", {
         "store": store,
         "tasks": tasks,
@@ -559,6 +811,14 @@ def store_detail(request, store_id):
         "router_placeholders": router_placeholders,
         "device_ip_fields": device_ip_fields,
         "has_network": has_network,
+        "excel_row_tsv": excel_row_tsv,
+        "ascn_rows_display": ascn_rows_display,
+        "ascn_rows_tsv": ascn_rows_tsv,
+        "company_inn": COMPANY_INN,
+        "ascn_utm_addr": ascn_utm_addr,
+        "ascn_setmark_addr": ascn_setmark_addr,
+        "ascn_lmch_addr": ascn_lmch_addr,
+        "ascn_device_ip": ascn_device_ip,
     })
 
 
@@ -2032,24 +2292,50 @@ def kb_ai_search(request):
     return JsonResponse({"found": True, "article_id": article.id, "title": article.title, "reason": reason, "log": log})
 
 
+# Сайт, Telegram-бот, голосовой ассистент и почтовый ассистент — независимые
+# долгоживущие процессы, каждый пишет в свой файл лога (см. settings.py,
+# почему они разведены). Здесь просто общий список для переключателя на
+# странице /logs/ — ключ используется в URL (?file=...), реальное имя файла
+# берётся строго из этого словаря, а не из пользовательского ввода.
+LOG_FILES = {
+    "ai": ("ai.log", "Сайт"),
+    "bot": ("bot.log", "Telegram-бот"),
+    "voice": ("voice_assistant.log", "Голосовой ассистент"),
+    "email": ("email_watcher.log", "Почта"),
+}
+
+
 def logs_page(request):
-    # Файл ai.log переворачивается каждую полночь (см. settings.py), так что обычно в нём
+    # Файлы переворачиваются каждую полночь (см. settings.py), так что обычно в них
     # и так только сегодняшние записи — но фильтруем по дате в начале строки на случай,
-    # если что-то осталось от предыдущего дня (например, сервер не перезапускался).
-    log_path = settings.LOGS_DIR / "ai.log"
+    # если что-то осталось от предыдущего дня (например, процесс не перезапускался).
+    file_key = request.GET.get("file", "ai")
+    if file_key not in LOG_FILES:
+        file_key = "ai"
+    filename, _ = LOG_FILES[file_key]
+    log_path = settings.LOGS_DIR / filename
     today_prefix = datetime.date.today().strftime("%d.%m.%Y")
     lines = []
     if log_path.exists():
         with open(log_path, encoding="utf-8", errors="replace") as f:
             lines = [ln for ln in f if ln.startswith(today_prefix)]
-    return render(request, "board/logs.html", {"log_text": "".join(lines)})
+    tabs = [{"key": key, "label": label} for key, (_, label) in LOG_FILES.items()]
+    return render(request, "board/logs.html", {
+        "log_text": "".join(lines),
+        "tabs": tabs,
+        "current_file": file_key,
+    })
 
 
 def logs_download(request):
-    log_path = settings.LOGS_DIR / "ai.log"
+    file_key = request.GET.get("file", "ai")
+    if file_key not in LOG_FILES:
+        file_key = "ai"
+    filename, _ = LOG_FILES[file_key]
+    log_path = settings.LOGS_DIR / filename
     if not log_path.exists():
         return HttpResponse("Лог пока пуст.", content_type="text/plain; charset=utf-8")
-    return FileResponse(open(log_path, "rb"), as_attachment=True, filename="ai.log")
+    return FileResponse(open(log_path, "rb"), as_attachment=True, filename=filename)
 
 
 def _build_today_digest():
@@ -2528,6 +2814,42 @@ def save_device_ips(request, store_id):
     obj.values = values
     obj.save(update_fields=["values", "updated_at"])
     return redirect(reverse("store_detail", args=[store.id]) + "#device-ips")
+
+
+@require_POST
+def regenerate_ascn_rows(request, store_id):
+    store = get_object_or_404(Store, id=store_id)
+    kso_count_raw = (request.POST.get("kso_count") or "").strip()
+    if kso_count_raw:
+        store.kso_count = kso_count_raw
+        store.save(update_fields=["kso_count"])
+    try:
+        target_count = int(store.kso_count)
+    except (TypeError, ValueError):
+        target_count = 0
+    existing_count = store.cash_registers.count()
+    if target_count > existing_count:
+        StoreCashRegister.objects.bulk_create([
+            StoreCashRegister(store=store, order=i, number=str(KSO_NUMBER_BASE + i))
+            for i in range(existing_count, target_count)
+        ])
+    return redirect(reverse("store_detail", args=[store.id]) + "#ascn-generator")
+
+
+@require_POST
+def save_ascn_rows(request, store_id):
+    store = get_object_or_404(Store, id=store_id)
+    store.locality = (request.POST.get("locality") or "").strip()
+    store.fsrar_id = (request.POST.get("fsrar_id") or "").strip()
+    store.save(update_fields=["locality", "fsrar_id"])
+    for reg in store.cash_registers.all():
+        prefix = f"row-{reg.id}-"
+        reg.number = (request.POST.get(prefix + "number") or "").strip()
+        reg.loymax_data = (request.POST.get(prefix + "loymax_data") or "").strip()
+        reg.sbp_terminal = (request.POST.get(prefix + "sbp_terminal") or "").strip()
+        reg.sbp_link = (request.POST.get(prefix + "sbp_link") or "").strip()
+        reg.save(update_fields=["number", "loymax_data", "sbp_terminal", "sbp_link"])
+    return redirect(reverse("store_detail", args=[store.id]) + "#ascn-generator")
 
 
 def router_config_template(request):

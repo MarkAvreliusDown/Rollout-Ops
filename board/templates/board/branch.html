@@ -46,7 +46,38 @@
   <div class="field"><label>№ объекта</label><input name="number" required></div>
   <div class="field"><label>Адрес</label><input name="address"></div>
   <div class="field"><label>Регион</label><input name="region"></div>
-  <div class="field"><label>Контакт / подрядчик</label><input name="contact"></div>
+  <div class="field">
+    <label>Подрядчик</label>
+    <select name="contact">
+      <option value="">—</option>
+      {% for value, label in contact_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {% if store_type == 'reconstruction' %}
+  <div class="field">
+    <label>Вид реконструкции</label>
+    <select name="reconstruction_kind" required>
+      <option value="full">Полная</option>
+      <option value="partial">Частичная</option>
+      <option value="mini">Мини</option>
+    </select>
+  </div>
+  <div class="hint" style="margin-top:-6px;margin-bottom:10px;">Обязательные задачи автоматически создаются только для полной реконструкции.</div>
+  {% endif %}
+
+  {% if store_type == 'extra' %}
+  <div class="field">
+    <label>Вид работ</label>
+    <select name="extra_kind">
+      <option value="">— не выбрано —</option>
+      <option value="extra_kso">Установка доп. КСО</option>
+    </select>
+  </div>
+  <div class="hint" style="margin-top:-6px;margin-bottom:10px;">При выборе «Установка доп. КСО» автоматически создаются задачи: СКС, ПНР, Доставка Пинпадов Сбер.</div>
+  {% endif %}
 
   {% if store_type == 'opening' %}
   <div class="row" style="gap:12px;">
@@ -96,6 +127,18 @@
       </label>
     </div>
   </div>
+
+  <div class="row" style="gap:12px;">
+    <div class="field" style="flex:1;min-width:160px;"><label>Лицензия для касс</label><input type="text" name="license_number"></div>
+    <div class="field" style="flex:1;min-width:160px;"><label>КПП</label><input type="text" name="kpp"></div>
+    <div class="field" style="flex:1;min-width:160px;"><label>Кластер</label><input type="text" name="cluster"></div>
+  </div>
+
+  <div class="row" style="gap:12px;">
+    <div class="field" style="flex:1;min-width:160px;"><label>Кол-во ИБП</label><input type="text" name="ibp_count"></div>
+    <div class="field" style="flex:1;min-width:160px;"><label>Провайдер</label><input type="text" name="provider"></div>
+  </div>
+
   <script>
     const ACCESS_POINTS_DEFAULT_BY_FORMAT = {"200": "3", "300": "3", "400": "5", "500/600": ""};
     function onAreaFormatChange() {

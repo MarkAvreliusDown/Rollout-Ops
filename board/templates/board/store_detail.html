@@ -23,6 +23,7 @@
         <button type="submit" class="secondary" style="font-size:13px;">📦 Архив</button>
       {% endif %}
     </form>
+    <button type="button" id="copyExcelRowBtn" class="secondary" style="font-size:13px;" onclick="copyExcelRow(this)">📋 Скопировать строку для Excel</button>
   </div>
 </div>
 
@@ -407,6 +408,55 @@
   </div>
 </details>
 
+<details class="card group-details" style="margin-top:12px;" id="ascn-generator">
+  <summary>🗂️ Строки для АСЦН</summary>
+  <div style="margin-top:10px;">
+    <form method="post" id="ascn-form">
+      {% csrf_token %}
+      <div class="field"><label>№ объекта</label><div>{{ store.number|default:"—" }}</div></div>
+      <div class="field"><label>Филиал</label><div>{{ store.get_branch_display|default:"—" }}</div></div>
+      <div class="field"><label>Регион</label><div>{{ store.region|default:"—" }}</div></div>
+      <div class="field"><label>Адрес</label><div>{{ store.address|default:"—" }}</div></div>
+      <div class="field"><label>IP модуля интеграции</label><div>{{ ascn_device_ip|default:"—" }}</div></div>
+      <div class="field"><label>ИНН</label><div>{{ company_inn|default:"—" }}</div></div>
+      <div class="field"><label>КПП</label><div>{{ store.kpp|default:"—" }}</div></div>
+      <div class="field"><label>Адрес УТМ</label><div>{{ ascn_utm_addr|default:"—" }}</div></div>
+      <div class="field"><label>Адрес setMark</label><div>{{ ascn_setmark_addr|default:"—" }}</div></div>
+      <div class="field"><label>ЛМЧЗ</label><div>{{ ascn_lmch_addr|default:"—" }}</div></div>
+
+      <div class="field"><label>Населённый пункт</label><input type="text" name="locality" value="{{ store.locality }}" autocomplete="off"></div>
+      <div class="field"><label>Кол-во КСО</label><input type="text" name="kso_count" value="{{ store.kso_count }}" autocomplete="off"></div>
+      <div class="field"><label>FSRAR_ID</label><input type="text" name="fsrar_id" value="{{ store.fsrar_id }}" autocomplete="off"></div>
+
+      {% if not has_network %}
+      <p class="muted" style="margin-top:10px;margin-bottom:0;">Чтобы расчёт сработал, сначала заполните и сохраните NETWORK в блоке «Конфиг роутера» выше.</p>
+      {% endif %}
+
+      {% if ascn_rows_display %}
+      {% for r in ascn_rows_display %}
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <div class="muted" style="font-size:12px;margin-bottom:6px;">Касса {{ r.obj.number }}</div>
+        <div class="field"><label>Номер КСО</label><input type="text" name="row-{{ r.obj.id }}-number" value="{{ r.obj.number }}" autocomplete="off"></div>
+        <div class="field"><label>Наименование КСО</label><div>{{ r.kso_name|default:"—" }}</div></div>
+        <div class="field"><label>IP СБ / IP ФР / GW</label><div>{{ r.ip_sb|default:"—" }} / {{ r.ip_fr|default:"—" }} / {{ r.gw|default:"—" }}</div></div>
+        <div class="field"><label>LOYMAX posid/login/password</label><textarea name="row-{{ r.obj.id }}-loymax_data" rows="3">{{ r.obj.loymax_data }}</textarea></div>
+        <div class="field"><label>Номер терминала СБП</label><input type="text" name="row-{{ r.obj.id }}-sbp_terminal" value="{{ r.obj.sbp_terminal }}" autocomplete="off"></div>
+        <div class="field"><label>Кассовая ссылка СБП</label><input type="text" name="row-{{ r.obj.id }}-sbp_link" value="{{ r.obj.sbp_link }}" autocomplete="off"></div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p class="muted" style="margin-top:10px;">Касс пока нет. Заполните «Кол-во КСО» выше и нажмите «Обновить строки».</p>
+      {% endif %}
+
+      <div class="row" style="margin-top:10px;">
+        <button type="submit" formaction="{% url 'regenerate_ascn_rows' store.id %}" class="secondary">🔄 Обновить строки</button>
+        <button type="submit" formaction="{% url 'save_ascn_rows' store.id %}" class="accent">💾 Сохранить</button>
+        <button type="button" id="copyAscnRowsBtn" class="secondary" onclick="copyAscnRows(this)">📋 Скопировать все строки</button>
+      </div>
+    </form>
+  </div>
+</details>
+
 </div>
 
 <!-- ===================== ПРОБЛЕМЫ ===================== -->
@@ -549,6 +599,72 @@
 </div>
 
 <script>
+var EXCEL_ROW_TSV = "{{ excel_row_tsv|escapejs }}";
+
+function copyExcelRow(btn) {
+  var old = btn.textContent;
+  function done(ok) {
+    btn.textContent = ok ? '✓ Скопировано' : '✗ Не удалось скопировать';
+    setTimeout(function() { btn.textContent = old; }, 1500);
+  }
+  function fallbackCopy() {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = EXCEL_ROW_TSV;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      done(ok);
+    } catch (e) {
+      done(false);
+    }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(EXCEL_ROW_TSV).then(function() {
+      done(true);
+    }).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
+}
+
+var ASCN_ROWS_TSV = "{{ ascn_rows_tsv|escapejs }}";
+
+function copyAscnRows(btn) {
+  var old = btn.textContent;
+  function done(ok) {
+    btn.textContent = ok ? '✓ Скопировано' : '✗ Не удалось скопировать';
+    setTimeout(function() { btn.textContent = old; }, 1500);
+  }
+  function fallbackCopy() {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = ASCN_ROWS_TSV;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      done(ok);
+    } catch (e) {
+      done(false);
+    }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ASCN_ROWS_TSV).then(function() {
+      done(true);
+    }).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
+}
+
 function showStoreTab(id) {
   document.querySelectorAll('.tabpanel').forEach(function(el) {
     el.classList.toggle('active', el.id === 'tab-' + id);

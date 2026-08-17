@@ -109,9 +109,9 @@
             <button class="btn-copy" onclick="generateAndCopy()">🚀 Сгенерировать и скопировать письмо</button>
             <button class="btn-recipients" onclick="copyRecipients()">📋 Копировать получателей</button>
             <button class="btn-neutral btn-small" onclick="editRecipients()">✎ Список получателей</button>
-            <button class="btn-settings" onclick="downloadEml()">📧 Открыть в Outlook (.eml)</button>
+            <button class="btn-settings" onclick="openInMailClient()">📧 Открыть новое письмо</button>
         </div>
-        <div class="hint">«Открыть в Outlook» скачает файл письма — открой его двойным кликом, Outlook создаст черновик с получателями, темой и таблицей. Останется проверить и нажать «Отправить».</div>
+        <div class="hint">«Открыть новое письмо» откроет почтовый клиент по умолчанию с уже подставленными получателями и темой, а тело письма (таблица) скопируется в буфер обмена — останется вставить его в письмо (Ctrl+V) и проверить перед отправкой.</div>
 
         <div id="preview">Предпросмотр письма появится здесь...</div>
     </div>
@@ -154,6 +154,7 @@ const AUTOFILL_BASE_OPTIONS = [
     ['columns_count_and_type', 'Кол-во колонок + тип (общей ячейкой)'],
     ['has_meat_scale', 'Весы «мясо» (да/нет)'],
     ['access_points_count', 'Кол-во точек доступа'],
+    ['wan_ip2_reserve', 'Внешние IP резервного канала (Provider2)'],
 ];
 let OPENING_TASK_TITLES = [];
 try {
@@ -724,50 +725,25 @@ async function generateAndCopy() {
     alert(`Письмо для ${comp.name} скопировано!`);
 }
 
-// ==================== СКАЧАТЬ ГОТОВОЕ ПИСЬМО ДЛЯ OUTLOOK (.eml) ====================
-function utf8ToBase64(str) {
-    return btoa(unescape(encodeURIComponent(str)));
-}
-
-function wrapBase64(b64) {
-    return b64.replace(/(.{76})/g, '$1\r\n');
-}
-
-function encodeHeaderWord(str) {
-    // если только латиница/цифры — не кодируем, иначе RFC 2047 (UTF-8, base64)
-    if (/^[\x00-\x7F]*$/.test(str)) return str;
-    return '=?UTF-8?B?' + utf8ToBase64(str) + '?=';
-}
-
-function downloadEml() {
+// ==================== ОТКРЫТЬ НОВОЕ ПИСЬМО В ПОЧТОВОМ КЛИЕНТЕ ПО УМОЛЧАНИЮ ====================
+async function openInMailClient() {
     const comp = currentCompany();
     if (!comp.recipients) {
         alert('Список получателей пуст. Нажмите "✎ Список получателей", чтобы задать его.');
         return;
     }
     const subject = comp.subject || comp.name;
-    const htmlBody = buildEmailHtml(comp);
+    const emailBody = buildEmailHtml(comp);
 
-    const eml = [
-        'To: ' + comp.recipients,
-        'Subject: ' + encodeHeaderWord(subject),
-        'MIME-Version: 1.0',
-        'Content-Type: text/html; charset="UTF-8"',
-        'Content-Transfer-Encoding: base64',
-        '',
-        wrapBase64(utf8ToBase64(htmlBody))
-    ].join('\r\n');
+    // Тело письма (HTML-таблица) в mailto не влезает и не форматируется —
+    // копируем его в буфер обмена как HTML, чтобы вставить одним Ctrl+V.
+    const blob = new Blob([emailBody], { type: 'text/html' });
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
 
-    const blob = new Blob([eml], { type: 'message/rfc822' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const safeName = comp.name.replace(/[^\wа-яА-ЯёЁ\- ]/g, '').trim() || 'letter';
-    a.href = url;
-    a.download = `${safeName}_${new Date().toISOString().slice(0,10)}.eml`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    const mailtoUrl = `mailto:${encodeURIComponent(comp.recipients)}?subject=${encodeURIComponent(subject)}`;
+    window.location.href = mailtoUrl;
+
+    alert('Тело письма скопировано в буфер обмена. Сейчас откроется новое письмо в почтовом клиенте по умолчанию с получателями и темой — вставьте тело письма (Ctrl+V) и проверьте перед отправкой.');
 }
 
 // ==================== УТИЛИТЫ ====================

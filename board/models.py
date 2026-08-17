@@ -20,6 +20,16 @@ STORE_TYPE_CHOICES = [
     ("closing", "Закрытие"),
 ]
 
+RECONSTRUCTION_KIND_CHOICES = [
+    ("full", "Полная"),
+    ("partial", "Частичная"),
+    ("mini", "Мини"),
+]
+
+EXTRA_KIND_CHOICES = [
+    ("extra_kso", "Установка доп. КСО"),
+]
+
 # Стадия готовности магазина на канбане на главной странице — выставляется/двигается
 # пользователем вручную (drag-and-drop), не связана со статусом задач (TASK_STATUS_CHOICES)
 # и не связана с типом магазина (STORE_TYPE_CHOICES).
@@ -48,6 +58,14 @@ AREA_FORMAT_CHOICES = [
     ("500/600", "500/600"),
 ]
 
+CONTRACTOR_CHOICES = [
+    ("Союз-76", "Союз-76"),
+    ("Принтград", "Принтград"),
+    ("НВ", "НВ"),
+    ("Дата Крат", "Дата Крат"),
+    ("Бизнес Содействие", "Бизнес Содействие"),
+]
+
 # Точки доступа по умолчанию для формата (можно поправить вручную при создании магазина).
 ACCESS_POINTS_DEFAULT_BY_FORMAT = {
     "200": "3",
@@ -63,7 +81,7 @@ class Store(models.Model):
     number = models.CharField("№ объекта", max_length=50)
     address = models.CharField("Адрес", max_length=300, blank=True)
     region = models.CharField("Регион", max_length=100, blank=True)
-    contact = models.CharField("Контакт / подрядчик", max_length=200, blank=True)
+    contact = models.CharField("Подрядчик", max_length=200, blank=True, choices=CONTRACTOR_CHOICES)
     notes = models.TextField("Заметки", blank=True)
     is_archived = models.BooleanField("В архиве", default=False)
     created_at = models.DateTimeField("Создано", auto_now_add=True)
@@ -80,9 +98,30 @@ class Store(models.Model):
     has_meat_scale = models.BooleanField("Весы «мясо» на объекте", default=False)
     access_points_count = models.CharField("Кол-во точек доступа", max_length=50, blank=True, default="")
 
+    # Поля для выгрузки строки в рабочий Excel-файл пользователя (кнопка "Скопировать
+    # строку для Excel" на карточке магазина) — см. _build_store_excel_row в views.py.
+    license_number = models.CharField("Лицензия для касс", max_length=255, blank=True, default="")
+    kpp = models.CharField("КПП", max_length=255, blank=True, default="")
+    cluster = models.CharField("Кластер", max_length=255, blank=True, default="")
+    ibp_count = models.CharField("Кол-во ИБП", max_length=255, blank=True, default="")
+    provider = models.CharField("Провайдер", max_length=255, blank=True, default="")
+
+    # Поля для генератора строк таблицы АСЦН (см. StoreCashRegister/_build_ascn_rows в views.py).
+    locality = models.CharField("Населённый пункт", max_length=200, blank=True, default="")
+    fsrar_id = models.CharField("FSRAR_ID", max_length=50, blank=True, default="")
+
     # Стадия готовности на канбане главной страницы (см. STORE_KANBAN_STATUS_CHOICES).
     kanban_status = models.CharField(
         "Стадия", max_length=20, choices=STORE_KANBAN_STATUS_CHOICES, default="new"
+    )
+
+    reconstruction_kind = models.CharField(
+        "Вид реконструкции", max_length=20, choices=RECONSTRUCTION_KIND_CHOICES,
+        blank=True, default="",
+    )
+
+    extra_kind = models.CharField(
+        "Вид работ", max_length=20, choices=EXTRA_KIND_CHOICES, blank=True, default=""
     )
 
     class Meta:
@@ -396,6 +435,23 @@ class ChecklistItem(models.Model):
         return self.text
 
 
+class StoreCashRegister(models.Model):
+    """Строка кассы (КСО) магазина для генератора строк таблицы АСЦН."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="cash_registers")
+    order = models.PositiveIntegerField("Порядок", default=0)
+    number = models.CharField("Номер КСО", max_length=20, blank=True, default="")
+    loymax_data = models.TextField("LOYMAX posid/login/password", blank=True, default="")
+    sbp_terminal = models.CharField("Номер терминала СБП", max_length=50, blank=True, default="")
+    sbp_link = models.CharField("Кассовая ссылка СБП", max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"КСО {self.number or self.order} — {self.store}"
+
+
 class SalarySettings(models.Model):
     base_oklad = models.IntegerField("Оклад до вычета НДФЛ", default=90000)
     ndfl_percent = models.DecimalField("НДФЛ, %", max_digits=4, decimal_places=1, default=13)
@@ -467,6 +523,7 @@ LOG_SOURCE_CHOICES = [
     ("web", "Сайт"),
     ("tg", "Telegram"),
     ("report", "Из старого отчёта"),
+    ("voice", "Голосовой ассистент"),
 ]
 
 
@@ -561,10 +618,10 @@ class LetterCompany(models.Model):
         return self.name
 
 
-def _store_autofill_values(store):
+def _store_autofill_values(store, router_values=None):
     """Значения магазина для столбцов письма, помеченных соответствующим тегом (кроме дат задач)."""
     columns_count_and_type = " ".join(x for x in [store.columns_count, store.columns_type] if x)
-    return {
+    values = {
         "branch": store.get_branch_display(),
         "number": store.number,
         "address": store.address,
@@ -578,16 +635,19 @@ def _store_autofill_values(store):
         "has_meat_scale": "Да" if store.has_meat_scale else "Нет",
         "access_points_count": store.access_points_count,
     }
+    if router_values and router_values.get("WANIP2") and router_values.get("WANGW2"):
+        values["wan_ip2_reserve"] = f"{router_values['WANIP2']}/30, шлюз {router_values['WANGW2']}"
+    return values
 
 
-def sync_new_store_to_letters(store):
+def sync_new_store_to_letters(store, router_values=None):
     """При создании магазина добавляет по строке в таблицы писем выбранных подрядчиков
     (Store.contractors — названия должны совпадать с названиями вкладок-компаний).
     Столбцы с тегом "task_date:..." при этом остаются пустыми — даты задач ещё не заданы,
     их дозаполнит _sync_task_date_to_letters, когда дата впервые появится."""
     if not store.contractors:
         return
-    values = _store_autofill_values(store)
+    values = _store_autofill_values(store, router_values)
     companies = LetterCompany.objects.filter(name__in=store.contractors, is_store_contractor=True)
     for company in companies:
         row = [values.get(col.get("autofill") or "", "") for col in company.columns]
@@ -905,3 +965,58 @@ def compute_device_ips_for_network(network_str):
     result["DEV_DNS1"] = DEVICE_DNS1
     result["DEV_DNS2"] = DEVICE_DNS2
     return result
+
+
+COMPANY_INN = "7729705354"
+KSO_NUMBER_BASE = 11
+KSO_IP_SB_OFFSET_BASE = 24
+KSO_IP_FR_OFFSET_BASE = 40
+
+
+def compute_kso_ips(network_str, order):
+    """IP СБ/ФР/шлюза для кассы с индексом order (0-based) в подсети network_str.
+    Возвращает dict {"ip_sb", "ip_fr", "gw"} или None, если сеть не задана/не парсится."""
+    if not network_str:
+        return None
+    try:
+        base = ipaddress.IPv4Address(network_str)
+        return {
+            "ip_sb": str(base + KSO_IP_SB_OFFSET_BASE + order),
+            "ip_fr": str(base + KSO_IP_FR_OFFSET_BASE + order),
+            "gw": str(base + DEVICE_IP_OFFSETS["DEV_GATEWAY"]),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+class Notification(models.Model):
+    """Уведомление для колокольчика на сайте (сейчас создаётся только
+    почтовым ассистентом, но source оставлен свободным полем на будущее)."""
+
+    text = models.CharField("Текст", max_length=300)
+    source = models.CharField("Источник", max_length=20, default="email")
+    is_read = models.BooleanField("Прочитано", default=False)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Уведомление"
+        verbose_name_plural = "Уведомления"
+
+    def __str__(self):
+        return self.text[:50]
+
+
+class ProcessedEmail(models.Model):
+    """Служебная запись для дедупликации — какие письма уже разобраны почтовым
+    ассистентом (email_watcher), чтобы не создавать заметку по одному письму дважды."""
+
+    message_id = models.CharField("ID письма", max_length=255, unique=True)
+    processed_at = models.DateTimeField("Обработано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Обработанное письмо"
+        verbose_name_plural = "Обработанные письма"
+
+    def __str__(self):
+        return self.message_id
