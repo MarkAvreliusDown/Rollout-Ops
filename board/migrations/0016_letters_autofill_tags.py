@@ -5,7 +5,7 @@
 
 from django.db import migrations
 
-Provider2_TAGS = {
+PROVIDER2_TAGS = {
     "Филиал": "branch",
     "№ объекта": "number",
     "Адрес": "address",
@@ -98,7 +98,7 @@ def tag_and_seed(apps, schema_editor):
         if changed:
             company.save()
 
-    apply_tags("provider2", Provider2_TAGS)
+    apply_tags("provider2", PROVIDER2_TAGS)
     apply_tags("servplus", SERVPLUS_TAGS)
     apply_tags("nv", NV_TAGS)
 
